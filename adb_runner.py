@@ -1,8 +1,5 @@
 import subprocess
 import argparse
-import platform
-import os
-import sys
 import re
 
 def inline_cmd(comando):
