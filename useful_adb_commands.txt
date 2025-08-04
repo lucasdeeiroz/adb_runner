@@ -1,0 +1,6 @@
+adb logcat --pid=$(adb -s {udid} shell pidof com.posi.seg.positivoseg)
+adb -s {udid} shell pm grant com.tribalfs.gmh android.permission.WRITE_SECURE_SETTINGS
+adb -s {udid} shell sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
+adb -s {udid} uninstall io.appium.uiautomator2.server.test && adb -s {udid} uninstall io.appium.uiautomator2.server
+{scrcpy_folder}\scrcpy.exe --pause-on-exit=if-error --window-title='{udid}' -s {udid}
+{scrcpy_folder}\scrcpy.exe -s {udid} --new-display=1920x1080/284
