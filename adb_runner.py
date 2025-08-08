@@ -21,45 +21,57 @@ def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
     """Executes a command in the shell and returns the output."""
     attempt = 0
     while attempt < max_attempts:
-        process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, err = process.communicate()
-        try:
-            if err:
-                err_str = err.decode('utf-8')
-                if err_str.startswith("* daemon not running"):
-                    print(err_str)
-                    print("ADB started. Trying again...")
-                    time.sleep(2)
-                    attempt += 1
-                    continue
-                elif "device not found" in err_str:
-                    print(f"{Style.RED}Device not found: {err_str}{Style.RESET}")
-                    return None
-                else:
-                    print(f"{Style.RED}Error executing the command: {err_str}{Style.RESET}")
-                    try_again = input("Press any key to try again or Q to quit...").upper()
+        if "scrcpy.exe" in command:
+            """Abre uma janela de prompt de comando e executa o comando."""
+            try:
+                subprocess.Popen(f'start cmd /K "{command}"', shell=True)
+                return "Scrcpy started in a new window."  # Return immediately after starting scrcpy
+            except FileNotFoundError:
+                print(f"{Style.RED}Erro: O comando 'start' não foi encontrado.{Style.RESET} Certifique-se de que está executando em um sistema Windows.")
+                return None
+            except Exception as e:
+                print(f"{Style.RED}Erro ao executar o comando: {e}{Style.RESET}")
+                return None
+        else:
+            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            output, err = process.communicate()
+            try:
+                if err:
+                    err_str = err.decode('utf-8')
+                    if err_str.startswith("* daemon not running"):
+                        print(err_str)
+                        print("ADB started. Trying again...")
+                        time.sleep(2)
+                        attempt += 1
+                        continue
+                    elif "device not found" in err_str:
+                        print(f"{Style.RED}Device not found: {err_str}{Style.RESET}")
+                        return None
+                    else:
+                        print(f"{Style.RED}Error executing the command: {err_str}{Style.RESET}")
+                        try_again = input("Press any key to try again or Q to quit...").upper()
+                        if try_again != "Q":
+                            attempt += 1
+                            continue
+                        else:
+                            return None
+                if not output:
+                    print(f"{Style.RED}Error executing the command: {command}{Style.RESET}")
+                    print("Check if the tool is installed and configured correctly.")
+                    print("See the README to install all the necessary tools.")
+                    try_again = input("\nPress any key to try again or Q to quit...").upper()
                     if try_again != "Q":
                         attempt += 1
                         continue
                     else:
                         return None
-            if not output:
-                print(f"{Style.RED}Error executing the command: {command}{Style.RESET}")
-                print("Check if the tool is installed and configured correctly.")
-                print("See the README to install all the necessary tools.")
-                try_again = input("\nPress any key to try again or Q to quit...").upper()
-                if try_again != "Q":
-                    attempt += 1
-                    continue
-                else:
+                return output.decode("utf-8").strip()
+            except UnicodeDecodeError:
+                try:
+                    return output.decode("latin-1").strip()
+                except:
+                    print(f"{Style.RED}Error decoding output. Please check your system's default encoding.{Style.RESET}")
                     return None
-            return output.decode("utf-8").strip()
-        except UnicodeDecodeError:
-            try:
-                return output.decode("latin-1").strip()
-            except:
-                print(f"{Style.RED}Error decoding output. Please check your system's default encoding.{Style.RESET}")
-                return None
     print(f"{Style.RED}Error executing the command after {max_attempts} attempts.{Style.RESET}")
     return None
 
@@ -274,7 +286,8 @@ if __name__ == "__main__":
         execute_selected_command(udid, scrcpy_folder)
 
         continuar = input("Do you want to execute another command? (Q/N): ").upper()
-        if continuar != "Q":
+        if continuar != "Q" or continuar != "N":
+            continue
+        else:
+            print("Exiting the script.")
             break
-
-    print("Script finished.")
