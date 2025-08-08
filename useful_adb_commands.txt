@@ -1,7 +1,10 @@
-
 echo Opening scrcpy mirroring && {scrcpy_folder}\scrcpy.exe --pause-on-exit=if-error --window-title='{udid}' -s {udid}
 echo Opening scrcpy virtual display && {scrcpy_folder}\scrcpy.exe -s {udid} --new-display=1920x1080/284
 echo Fixing Appium errors && adb -s {udid} uninstall io.appium.uiautomator2.server.test && adb -s {udid} uninstall io.appium.uiautomator2.server
 echo Taking logs from app && adb logcat --pid=$(adb -s {udid} shell pidof com.google.calculator)
 echo Granting Galaxy MahHz permission && adb -s {udid} shell pm grant com.tribalfs.gmh android.permission.WRITE_SECURE_SETTINGS
 echo Setting up Shizuku && adb -s {udid} shell sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
+echo Lower the long press waiting && adb -s {udid} shell settings put secure long_press_timeout 250
+echo Lower the multi press waiting && adb -s {udid} shell settings put secure multi_press_timeout 250
+adb -s {udid} shell settings put global adaptive_battery_management_enabled 0
+echo Lower the animation scale && adb -s {udid} shell settings put global animator_duration_scale 0.5

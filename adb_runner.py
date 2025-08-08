@@ -145,7 +145,7 @@ def load_commands_from_file(filename="useful_adb_commands.txt", scrcpy_folder=""
         with open(filename, "r") as file:
             for i, line in enumerate(file):
                 line = line.strip()
-                if line and not line.startswith("//"):  # Ignore empty lines and comments
+                if line and not line.startswith("//") and not line.isspace():  # Ignore empty lines and comments
                     commands[str(i + 1)] = line.replace("{scrcpy_folder}", scrcpy_folder)
     except FileNotFoundError:
         print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
@@ -173,12 +173,13 @@ def execute_selected_command(udid: str, scrcpy_folder: str) -> None:
         if choice in predefined_commands:
             command = predefined_commands[choice].format(udid=udid)
         elif choice == str(next_command_number):
-            command = input("Insert ADB shell command: ").format(udid=udid)
+            command = input("Insert ADB shell command: ")
             add_to_file = input("Do you want to add this command to the commands file? (Y/N): ").upper()
             if add_to_file == "Y":
                 with open(commands_file, "a") as file:
-                    file.write(f"\n//Added by user: {command}")
-                print(f"Command added to {commands_file}")
+                    file.write(f"\n{command}")
+                print(f"Command '{command}' added to {commands_file}")
+                command = command.replace("{scrcpy_folder}", scrcpy_folder).format(udid=udid)
         else:
             print(f"{Style.RED}Invalid option.{Style.RESET}")
             continue
