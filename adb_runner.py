@@ -146,7 +146,10 @@ def load_commands_from_file(filename="useful_adb_commands.txt", scrcpy_folder=""
             for i, line in enumerate(file):
                 line = line.strip()
                 if line and not line.startswith("//") and not line.isspace():  # Ignore empty lines and comments
-                    commands[str(i + 1)] = line.replace("{scrcpy_folder}", scrcpy_folder)
+                    title = line
+                    if line.startswith("echo "):
+                        title = line.split("&&")[0].replace("echo ", "").strip()
+                    commands[str(i + 1)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
     except FileNotFoundError:
         print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
         return {}
@@ -160,8 +163,8 @@ def execute_selected_command(udid: str, scrcpy_folder: str) -> None:
     next_command_number = len(predefined_commands) + 1
 
     print("\nPredefined commands:")
-    for key, command in predefined_commands.items():
-        print(f"{key} - {command.format(udid=udid)}")
+    for key, command_data in predefined_commands.items():
+        print(f"{key} - {command_data['title'].format(udid=udid)}")
     print(f"{next_command_number} - Insert custom ADB shell command")
     print("Q - Exit")
 
@@ -171,14 +174,15 @@ def execute_selected_command(udid: str, scrcpy_folder: str) -> None:
             return
 
         if choice in predefined_commands:
-            command = predefined_commands[choice].format(udid=udid)
+            command = predefined_commands[choice]["command"].format(udid=udid)
         elif choice == str(next_command_number):
             command = input("Insert ADB shell command: ")
+            title = input("Insert a title for this command: ")
             add_to_file = input("Do you want to add this command to the commands file? (Y/N): ").upper()
             if add_to_file == "Y":
                 with open(commands_file, "a") as file:
-                    file.write(f"\n{command}")
-                print(f"Command '{command}' added to {commands_file}")
+                    file.write(f"\necho {title} && {command}")
+                print(f"Command '{title}' added to {commands_file}")
                 command = command.replace("{scrcpy_folder}", scrcpy_folder).format(udid=udid)
         else:
             print(f"{Style.RED}Invalid option.{Style.RESET}")
@@ -287,7 +291,7 @@ if __name__ == "__main__":
         execute_selected_command(udid, scrcpy_folder)
 
         continuar = input("Do you want to execute another command? (Q/N): ").upper()
-        if continuar != "Q" or continuar != "N":
+        if continuar != "Q" and continuar != "N":
             continue
         else:
             print("Exiting the script.")

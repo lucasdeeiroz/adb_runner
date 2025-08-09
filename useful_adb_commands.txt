@@ -6,5 +6,14 @@ echo Granting Galaxy MahHz permission && adb -s {udid} shell pm grant com.tribal
 echo Setting up Shizuku && adb -s {udid} shell sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
 echo Lower the long press waiting && adb -s {udid} shell settings put secure long_press_timeout 250
 echo Lower the multi press waiting && adb -s {udid} shell settings put secure multi_press_timeout 250
-adb -s {udid} shell settings put global adaptive_battery_management_enabled 0
-echo Lower the animation scale && adb -s {udid} shell settings put global animator_duration_scale 0.5
+echo Disable battery management && adb -s {udid} shell settings put global adaptive_battery_management_enabled 0
+echo Lower the animation duration scale && adb -s {udid} shell settings put global animator_duration_scale 0.5
+echo Lower the transition animation scale && adb -s {udid} shell settings put global transition_animation_scale 0.5
+echo Lower the window animation scale && adb -s {udid} shell settings put global window_animation_scale 0.5
+echo Disable RAM expand && adb -s {udid} shell settings put global ram_expand_size 0
+echo Enable low heat mode && adb -s {udid} shell settings put global sem_low_heat_mode 1
+echo Enable back animation && adb -s {udid} shell settings put global enable_back_animation 1
+echo Enable flashlight high level && adb -s {udid} shell settings put system Flashlight_brightness_level 1001
+echo Enable brightness on top && adb -s {udid} shell settings put secure brightness_on_top 1
+echo Disable online manual && adb -s {udid} shell settings put global online_manual_url 0
+echo Enable AdGuard DNS && adb -s {udid} shell settings put global private_dns_specifier dns.adguard.com
