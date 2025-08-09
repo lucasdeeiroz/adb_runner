@@ -143,13 +143,15 @@ def load_commands_from_file(filename="useful_adb_commands.txt", scrcpy_folder=""
     commands = {}
     try:
         with open(filename, "r") as file:
-            for i, line in enumerate(file):
+            i = 1
+            for line in file:
                 line = line.strip()
-                if line and not line.startswith("//") and not line.isspace():  # Ignore empty lines and comments
+                if line and not line.startswith("//"):  # Ignore empty lines and comments
                     title = line
                     if line.startswith("echo "):
                         title = line.split("&&")[0].replace("echo ", "").strip()
-                    commands[str(i + 1)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
+                    commands[str(i)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
+                    i += 1
     except FileNotFoundError:
         print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
         return {}
