@@ -17,6 +17,11 @@ class Style:
     RESET = "\033[0m"
 
 
+def clear_terminal():
+    """Clears the terminal screen."""
+    os.system('cls' if os.name == 'nt' else 'clear')
+
+
 def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
     """Executes a command in the shell and returns the output."""
     attempt = 0
@@ -25,11 +30,14 @@ def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
             """Abre uma janela de prompt de comando e executa o comando."""
             try:
                 subprocess.Popen(f'start cmd /K "{command}"', shell=True)
+                clear_terminal()
                 return "Scrcpy started in a new window."  # Return immediately after starting scrcpy
             except FileNotFoundError:
+                clear_terminal()
                 print(f"{Style.RED}Erro: O comando 'start' não foi encontrado.{Style.RESET} Certifique-se de que está executando em um sistema Windows.")
                 return None
             except Exception as e:
+                clear_terminal()
                 print(f"{Style.RED}Erro ao executar o comando: {e}{Style.RESET}")
                 return None
         else:
@@ -45,22 +53,25 @@ def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
                         attempt += 1
                         continue
                     elif "device not found" in err_str:
+                        clear_terminal()
                         print(f"{Style.RED}Device not found: {err_str}{Style.RESET}")
                         return None
                     else:
+                        clear_terminal()
                         print(f"{Style.RED}Error executing the command: {err_str}{Style.RESET}")
-                        try_again = input("Press any key to try again or Q to quit...").upper()
+                        try_again = input("Press 'Y' to try again or 'Q' to quit...").upper()
                         if try_again != "Q":
                             attempt += 1
                             continue
                         else:
                             return None
                 if not output:
+                    clear_terminal()
                     print(f"{Style.RED}Error executing the command: {command}{Style.RESET}")
                     print("Check if the tool is installed and configured correctly.")
                     print("See the README to install all the necessary tools.")
-                    try_again = input("\nPress any key to try again or Q to quit...").upper()
-                    if try_again != "Q":
+                    try_again = input("\nPress 'Y' to try again or 'Q' to quit...").upper()
+                    if try_again == "Y":
                         attempt += 1
                         continue
                     else:
@@ -68,10 +79,13 @@ def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
                 return output.decode("utf-8").strip()
             except UnicodeDecodeError:
                 try:
+                    clear_terminal()
                     return output.decode("latin-1").strip()
                 except:
+                    clear_terminal()
                     print(f"{Style.RED}Error decoding output. Please check your system's default encoding.{Style.RESET}")
                     return None
+    clear_terminal()
     print(f"{Style.RED}Error executing the command after {max_attempts} attempts.{Style.RESET}")
     return None
 
@@ -101,9 +115,12 @@ def get_devices() -> Union[List[Tuple[str, str, str]], None]:
             return devices
         else:
             print(f"{Style.RED}No Android devices detected.{Style.RESET} Connect a device to the computer and make sure USB Debugging is enabled.")  # noqa
-            input("Press any key to try again...")
-            print("\n==================================================\n")
-            continue
+            update = input("Press 'R' to refresh the devices list or 'Q' to quit: ").upper()
+            if update == 'R':
+                clear_terminal()
+                continue
+            else:
+                return None
 
 
 def get_android_version(udid: str) -> Union[str, None]:
@@ -131,10 +148,15 @@ def select_device(devices: List[Tuple[str, str, str]]) -> Union[str, None]:
         try:
             index = int(choice) - 1
             if 0 <= index < len(devices):
+                clear_terminal()
+                print(f"Selected device: {devices[index][1]} - {devices[index][2]} ({devices[index][0]})")
+                print("\n==================================================\n")
                 return devices[index][0]  # Returns the UDID
             else:
+                clear_terminal()
                 print(f"{Style.RED}Invalid number.{Style.RESET}")
         except ValueError:
+            clear_terminal()
             print(f"{Style.RED}Invalid input.{Style.RESET}")
 
 
@@ -153,6 +175,7 @@ def load_commands_from_file(filename="useful_adb_commands.txt", scrcpy_folder=""
                     commands[str(i)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
                     i += 1
     except FileNotFoundError:
+        clear_terminal()
         print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
         return {}
     return commands
@@ -177,6 +200,8 @@ def execute_selected_command(udid: str, scrcpy_folder: str) -> None:
 
         if choice in predefined_commands:
             command = predefined_commands[choice]["command"].format(udid=udid)
+            clear_terminal()
+            print(f"Selected command: {predefined_commands[choice]['title'].format(udid=udid)}")
         elif choice == str(next_command_number):
             command = input("Insert ADB shell command: ")
             title = input("Insert a title for this command: ")
@@ -186,7 +211,14 @@ def execute_selected_command(udid: str, scrcpy_folder: str) -> None:
                     file.write(f"\necho {title} && {command}")
                 print(f"Command '{title}' added to {commands_file}")
                 command = command.replace("{scrcpy_folder}", scrcpy_folder).format(udid=udid)
+                clear_terminal()
+                print(f"Added command: {title}")
+            else:
+                clear_terminal()
+                print("Command not added.")
+                continue
         else:
+            clear_terminal()
             print(f"{Style.RED}Invalid option.{Style.RESET}")
             continue
 
@@ -213,6 +245,7 @@ def check_and_download_scrcpy():
         if os.path.exists(scrcpy_executable):
             return scrcpy_folder
 
+    clear_terminal()
     print("scrcpy not found. Downloading...")
     try:
         # Get the latest release info from GitHub API
@@ -230,9 +263,11 @@ def check_and_download_scrcpy():
                     download_url = asset["browser_download_url"]
                     break
             if not download_url:
+                clear_terminal()
                 print(f"{Style.RED}Could not find the correct asset for Windows.{Style.RESET}")
                 return False
         else:
+            clear_terminal()
             print(f"{Style.RED}Automatic download of scrcpy is only supported on Windows.{Style.RESET}")
             return False
 
@@ -257,18 +292,21 @@ def check_and_download_scrcpy():
 
         # Clean up the zip file
         os.remove(zip_path)
-
+        clear_terminal()
         print("scrcpy downloaded and extracted successfully.")
         return scrcpy_folder
 
     except urllib.error.URLError as e:
+        clear_terminal()
         print(f"{Style.RED}Error downloading scrcpy: {e.reason}{Style.RESET}")
         return False
     except zipfile.BadZipFile:
+        clear_terminal()
         print(f"{Style.RED}Error extracting scrcpy. The downloaded file may be corrupted.{Style.RESET}")
         return False
 
     except Exception as e:
+        clear_terminal()
         print(f"{Style.RED}Error downloading or extracting scrcpy: {e}{Style.RESET}")
         return False
 
@@ -276,25 +314,30 @@ def check_and_download_scrcpy():
 if __name__ == "__main__":
     scrcpy_folder = check_and_download_scrcpy()
     if not scrcpy_folder:
+        clear_terminal()
         print("Failed to download scrcpy. Ensure you have the necessary tools installed manually.")
         sys.exit(1)
 
     while True:
         devices = get_devices()
         if not devices:
+            clear_terminal()
             print("No devices found. Exiting.")
             break
 
         udid = select_device(devices)
         if not udid:
+            clear_terminal()
             print("No device selected. Exiting.")
             break
 
         execute_selected_command(udid, scrcpy_folder)
 
-        continuar = input("Do you want to execute another command? (Q/N): ").upper()
-        if continuar != "Q" and continuar != "N":
+        continuar = input("Do you want to execute another command? (Y/N): ").upper()
+        if continuar != "N":
+            clear_terminal()
             continue
         else:
+            clear_terminal()
             print("Exiting the script.")
             break
