@@ -1,5 +1,6 @@
+import tkinter as tk
+from tkinter import ttk
 import subprocess
-import re
 import os
 import sys
 import time
@@ -30,14 +31,11 @@ def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
             """Abre uma janela de prompt de comando e executa o comando."""
             try:
                 subprocess.Popen(f'start cmd /K "{command}"', shell=True)
-                clear_terminal()
                 return "Scrcpy started in a new window."  # Return immediately after starting scrcpy
             except FileNotFoundError:
-                clear_terminal()
                 print(f"{Style.RED}Erro: O comando 'start' não foi encontrado.{Style.RESET} Certifique-se de que está executando em um sistema Windows.")
                 return None
             except Exception as e:
-                clear_terminal()
                 print(f"{Style.RED}Erro ao executar o comando: {e}{Style.RESET}")
                 return None
         else:
@@ -175,9 +173,30 @@ def load_commands_from_file(filename="useful_adb_commands.txt", scrcpy_folder=""
                     commands[str(i)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
                     i += 1
     except FileNotFoundError:
-        clear_terminal()
-        print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
-        return {}
+        print(f"{Style.RED}Commands file '{filename}' not found. Creating a default one.{Style.RESET}")
+        # Create a default commands file
+        with open(filename, "w") as file:
+            file.write("// useful_adb_commands.txt\n")
+            file.write("// Add your ADB commands here. Each command should be on a new line.\n")
+            file.write("// Lines starting with // are comments and will be ignored.\n")
+            file.write("echo Opening scrcpy mirroring && {scrcpy_folder}\scrcpy.exe --pause-on-exit=if-error --window-title='{udid}' -s {udid}\n")
+            file.write("echo Opening scrcpy virtual display && {scrcpy_folder}\scrcpy.exe -s {udid} --new-display=1920x1080/284\n")
+        # Try loading again
+        try:
+            with open(filename, "r") as file:
+                i = 1
+                for line in file:
+                    line = line.strip()
+                    if line and not line.startswith("//"):  # Ignore empty lines and comments
+                        title = line
+                        if line.startswith("echo "):
+                            title = line.split("&&")[0].replace("echo ", "").strip()
+                        commands[str(i)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
+                        i += 1
+        except FileNotFoundError:
+            clear_terminal()
+            print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
+            return {}
     return commands
 
 
@@ -318,26 +337,152 @@ if __name__ == "__main__":
         print("Failed to download scrcpy. Ensure you have the necessary tools installed manually.")
         sys.exit(1)
 
-    while True:
-        devices = get_devices()
-        if not devices:
-            clear_terminal()
-            print("No devices found. Exiting.")
-            break
-
-        udid = select_device(devices)
-        if not udid:
-            clear_terminal()
-            print("No device selected. Exiting.")
-            break
-
-        execute_selected_command(udid, scrcpy_folder)
-
-        continuar = input("Do you want to execute another command? (Y/N): ").upper()
-        if continuar != "N":
-            clear_terminal()
-            continue
+    def get_devices_gui():
+        """Gets the UDIDs, versions, and models of connected Android devices."""
+        devices = []
+        recognized_devices = execute_command("adb devices")
+        if not recognized_devices:
+            print(f"{Style.RED}Error executing the 'adb devices' command.{Style.RESET}")
+            print("Check if ADB is installed and configured correctly.")
+            print("\n==================================================\n")
+            return None
+        lines = recognized_devices.splitlines()
+        for line in lines[1:]:  # Ignore the first line (header)
+            parts = line.split()
+            if len(parts) == 2 and parts[1] in ("device", "emulator"):
+                udid = parts[0]
+                android_version = get_android_version(udid)
+                android_model = get_model(udid)
+                if android_version and android_model:
+                    devices.append((udid, android_version, android_model))
+        if devices:
+            print("\n==================================================\n")
+            return devices
         else:
-            clear_terminal()
-            print("Exiting the script.")
-            break
+            print(f"{Style.RED}No Android devices detected.{Style.RESET} Connect a device to the computer and make sure USB Debugging is enabled.")  # noqa
+            return None
+
+    def execute_selected_command_gui(udid: str, scrcpy_folder: str, command: str) -> None:
+        """Executes an ADB command selected by the user."""
+        output_text.config(state=tk.NORMAL)  # Enable editing
+        output_text.delete("1.0", tk.END)  # Clear previous output
+        output_text.config(state=tk.DISABLED)  # Disable editing
+
+        print(f"\nExecuting: {Style.BLUE}{command}{Style.RESET} on device {udid}...")
+        output = execute_command(command)
+
+        output_text.config(state=tk.NORMAL)  # Enable editing
+        if output:
+            output_text.insert(tk.END, output)
+        else:
+            output_text.insert(tk.END, f"{Style.RED}Failed to execute the command.{Style.RESET}")
+        output_text.config(state=tk.DISABLED)  # Disable editing
+        return
+
+    def refresh_devices():
+        devices = get_devices_gui()
+        if devices:
+            device_combobox['values'] = [f"{version} - {model} ({udid})" for udid, version, model in devices]
+        else:
+            device_combobox['values'] = []
+
+    def execute_command_gui():
+        selected_device = device_combobox.get()
+        if not selected_device:
+            print("No device selected.")
+            return
+
+        udid = selected_device.split('(')[-1].replace(')', '')
+        selected_command = command_listbox.get(tk.ANCHOR)
+        if not selected_command:
+            print("No command selected.")
+            return
+
+        commands_file = "useful_adb_commands.txt"
+        predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
+        # Find the key that matches the selected command text
+        for key, command_data in predefined_commands.items():
+            if f"{key} - {command_data['title']}" == selected_command:
+                command = command_data["command"].format(udid=udid)
+                execute_selected_command_gui(udid, scrcpy_folder, command)
+                return
+
+        print(f"Command not found: {selected_command}")
+
+    def edit_commands_file():
+        try:
+            os.startfile("useful_adb_commands.txt")  # For Windows
+        except AttributeError:
+            subprocess.call(['open', "useful_adb_commands.txt"])  # For macOS
+        except:
+            subprocess.call(['xdg-open', "useful_adb_commands.txt"])  # For Linux
+
+    def refresh_commands():
+        # Clear the listbox
+        command_listbox.delete(0, tk.END)
+
+        # Reload commands from the file
+        commands_file = "useful_adb_commands.txt"
+        predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
+        i = 1
+        for key, command_data in predefined_commands.items():
+            command_listbox.insert(tk.END, f"{i} - {command_data['title']}")
+            i += 1
+
+
+    root = tk.Tk()
+    root.title("ADB Runner")
+
+    # Device Selection Frame
+    device_frame = ttk.LabelFrame(root, text="Select Device")
+    device_frame.pack(padx=10, pady=10, fill=tk.X)
+
+    device_combobox = ttk.Combobox(device_frame, state="readonly")
+    device_combobox.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+
+    refresh_button = ttk.Button(device_frame, text="Refresh Devices", command=refresh_devices)
+    refresh_button.pack(side=tk.LEFT, padx=5)
+
+    # Command Selection Frame
+    command_frame = ttk.LabelFrame(root, text="Select Command")
+    command_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+    command_listbox = tk.Listbox(command_frame, height=10, width=50)
+    command_listbox.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.BOTH, expand=True)
+
+    scrollbar_listbox = ttk.Scrollbar(command_frame, orient=tk.VERTICAL, command=command_listbox.yview)
+    scrollbar_listbox.pack(side=tk.LEFT, fill=tk.Y)
+    command_listbox['yscrollcommand'] = scrollbar_listbox.set
+
+    output_text = tk.Text(command_frame, wrap=tk.WORD, state=tk.DISABLED)
+    output_text.pack(side=tk.RIGHT, padx=5, pady=5, fill=tk.BOTH, expand=True)
+
+    scrollbar_output = ttk.Scrollbar(command_frame, orient=tk.VERTICAL, command=output_text.yview)
+    scrollbar_output.pack(side=tk.RIGHT, fill=tk.Y)
+    output_text['yscrollcommand'] = scrollbar_output.set
+
+    # Load commands into the listbox
+    commands_file = "useful_adb_commands.txt"
+    predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
+    i = 1
+    for key, command_data in predefined_commands.items():
+        command_listbox.insert(tk.END, f"{i} - {command_data['title']}")
+        i += 1
+
+    # Actions Frame
+    actions_frame = ttk.Frame(root)
+    actions_frame.pack(padx=10, pady=10, fill=tk.X)
+
+    edit_commands_button = ttk.Button(actions_frame, text="Edit Commands File", command=edit_commands_file)
+    edit_commands_button.pack(side=tk.LEFT)
+
+    refresh_commands_button = ttk.Button(actions_frame, text="Refresh Commands", command=refresh_commands)
+    refresh_commands_button.pack(side=tk.LEFT)
+
+    execute_button = ttk.Button(actions_frame, text="Execute Command", command=execute_command_gui)
+    execute_button.pack(side=tk.RIGHT)
+
+    # Initial device refresh
+    refresh_devices()
+
+    root.mainloop()
