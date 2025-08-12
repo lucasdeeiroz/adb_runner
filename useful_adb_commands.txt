@@ -16,3 +16,4 @@ TITLE: Enable flashlight high level; ADB_COMMAND: settings put system Flashlight
 TITLE: Enable brightness on top; ADB_COMMAND: settings put secure brightness_on_top 0
 TITLE: Disable online manual; ADB_COMMAND: settings put global online_manual_url 0
 TITLE: Enable AdGuard DNS; ADB_COMMAND: settings put global private_dns_specifier dns.adguard.com
+TITLE: adb shell getprop ro.product.model ; ADB_COMMAND: getprop ro.product.model

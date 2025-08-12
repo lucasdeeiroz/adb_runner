@@ -54,12 +54,6 @@ ADB & Scrcpy Runner is a graphical user interface (GUI) tool written in Python u
     pip install -r requirements.txt
     ```
 
-    (Create a `requirements.txt` file with the following content):
-
-    ```txt
-    ttkbootstrap
-    ```
-
 3.  Run the script:
 
     ```bash
