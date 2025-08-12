@@ -31,9 +31,16 @@ if sys.platform == "win32":
 
 
 # --- Constants ---
-ADB_COMMANDS_FILE = Path("useful_adb_commands.txt")
-SCRCPY_COMMANDS_FILE = Path("useful_scrcpy_commands.txt")
-BASE_DIR = Path(__file__).resolve().parent
+# **FIX:** Determine the base directory correctly whether running as a script or a frozen executable.
+if getattr(sys, 'frozen', False):
+    # If the application is run as a bundle, the BASE_DIR is the executable directory
+    BASE_DIR = Path(sys.executable).parent
+else:
+    # If the application is run as a script, the BASE_DIR is the script directory
+    BASE_DIR = Path(__file__).resolve().parent
+
+ADB_COMMANDS_FILE = BASE_DIR / "useful_adb_commands.txt"
+SCRCPY_COMMANDS_FILE = BASE_DIR / "useful_scrcpy_commands.txt"
 
 
 # --- New Console Redirector Class ---
