@@ -1,19 +1,18 @@
-echo Opening scrcpy mirroring && {scrcpy_folder}\scrcpy.exe --pause-on-exit=if-error --window-title='{udid}' -s {udid}
-echo Opening scrcpy virtual display && {scrcpy_folder}\scrcpy.exe -s {udid} --new-display=1920x1080/284
-echo Fixing Appium errors && adb -s {udid} uninstall io.appium.uiautomator2.server.test && adb -s {udid} uninstall io.appium.uiautomator2.server
-echo Taking logs from Calculator && adb logcat --pid=$(adb -s {udid} shell pidof com.google.calculator)
-echo Granting Galaxy MahHz permission && adb -s {udid} shell pm grant com.tribalfs.gmh android.permission.WRITE_SECURE_SETTINGS
-echo Setting up Shizuku && adb -s {udid} shell sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
-echo Lower the long press waiting && adb -s {udid} shell settings put secure long_press_timeout 250
-echo Lower the multi press waiting && adb -s {udid} shell settings put secure multi_press_timeout 250
-echo Disable battery management && adb -s {udid} shell settings put global adaptive_battery_management_enabled 0
-echo Lower the animation duration scale && adb -s {udid} shell settings put global animator_duration_scale 0.5
-echo Lower the transition animation scale && adb -s {udid} shell settings put global transition_animation_scale 0.5
-echo Lower the window animation scale && adb -s {udid} shell settings put global window_animation_scale 0.5
-echo Disable RAM expand && adb -s {udid} shell settings put global ram_expand_size 0
-echo Enable low heat mode && adb -s {udid} shell settings put global sem_low_heat_mode 1
-echo Enable back animation && adb -s {udid} shell settings put global enable_back_animation 1
-echo Enable flashlight high level && adb -s {udid} shell settings put system Flashlight_brightness_level 1001
-echo Enable brightness on top && adb -s {udid} shell settings put secure brightness_on_top 1
-echo Disable online manual && adb -s {udid} shell settings put global online_manual_url 0
-echo Enable AdGuard DNS && adb -s {udid} shell settings put global private_dns_specifier dns.adguard.com
+// useful_adb_commands.txt
+// Use {udid} to reference the selected device's ID.
+TITLE: Fixing Appium errors; ADB_COMMAND: uninstall io.appium.uiautomator2.server.test && adb -s {udid} uninstall io.appium.uiautomator2.server
+TITLE: Granting Galaxy MahHz permission; ADB_COMMAND: pm grant com.tribalfs.gmh android.permission.WRITE_SECURE_SETTINGS
+TITLE: Setting up Shizuku; ADB_COMMAND: sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
+TITLE: Lower the long press waiting; ADB_COMMAND: settings put secure long_press_timeout 250
+TITLE: Lower the multi press waiting; ADB_COMMAND: settings put secure multi_press_timeout 250
+TITLE: Disable battery management; ADB_COMMAND: settings put global adaptive_battery_management_enabled 0
+TITLE: Lower the animation duration scale; ADB_COMMAND: settings put global animator_duration_scale 0.5
+TITLE: Lower the transition animation scale; ADB_COMMAND: settings put global transition_animation_scale 0.5
+TITLE: Lower the window animation scale; ADB_COMMAND: settings put global window_animation_scale 0.5
+TITLE: Disable RAM expand; ADB_COMMAND: settings put global ram_expand_size 0
+TITLE: Enable low heat mode; ADB_COMMAND: settings put global sem_low_heat_mode 1
+TITLE: Enable back animation; ADB_COMMAND: settings put global enable_back_animation 1
+TITLE: Enable flashlight high level; ADB_COMMAND: settings put system Flashlight_brightness_level 1001
+TITLE: Enable brightness on top; ADB_COMMAND: settings put secure brightness_on_top 0
+TITLE: Disable online manual; ADB_COMMAND: settings put global online_manual_url 0
+TITLE: Enable AdGuard DNS; ADB_COMMAND: settings put global private_dns_specifier dns.adguard.com

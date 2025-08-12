@@ -1,488 +1,377 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, simpledialog
+import ttkbootstrap as ttk
+from ttkbootstrap.scrolled import ScrolledText
+from ttkbootstrap.constants import *
 import subprocess
-import os
 import sys
-import time
-from typing import List, Tuple, Union
+import json
 import urllib.request
 import zipfile
-import json
+import threading
+from typing import List, Tuple, Dict, Optional
+from pathlib import Path
+import ctypes
 
+# --- Constants ---
+ADB_COMMANDS_FILE = Path("useful_adb_commands.txt")
+SCRCPY_COMMANDS_FILE = Path("useful_scrcpy_commands.txt")
+BASE_DIR = Path(__file__).resolve().parent
 
-class Style:
-    """Define colors for the terminal."""
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    BLUE = "\033[34m"
-    RESET = "\033[0m"
+# --- Core Logic Functions (Separated from GUI) ---
 
+def hide_console():
+    """Hides the console window on Windows when running as a frozen executable."""
+    if sys.platform == "win32":
+        if getattr(sys, 'frozen', False):
+            ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
-def clear_terminal():
-    """Clears the terminal screen."""
-    os.system('cls' if os.name == 'nt' else 'clear')
-
-
-def execute_command(command: str, max_attempts: int = 3) -> Union[str, None]:
-    """Executes a command in the shell and returns the output."""
-    attempt = 0
-    while attempt < max_attempts:
+def execute_command(command: str) -> Tuple[bool, str]:
+    """Executes a shell command and returns a tuple (success, output)."""
+    try:
         if "scrcpy.exe" in command:
-            """Abre uma janela de prompt de comando e executa o comando."""
-            try:
-                subprocess.Popen(f'start cmd /K "{command}"', shell=True)
-                return "Scrcpy started in a new window."  # Return immediately after starting scrcpy
-            except FileNotFoundError:
-                print(f"{Style.RED}Erro: O comando 'start' não foi encontrado.{Style.RESET} Certifique-se de que está executando em um sistema Windows.")
-                return None
-            except Exception as e:
-                print(f"{Style.RED}Erro ao executar o comando: {e}{Style.RESET}")
-                return None
+            subprocess.Popen(f'start cmd /K "{command}"', shell=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            return True, "Scrcpy started in a new window."
         else:
-            process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            output, err = process.communicate()
-            try:
-                if err:
-                    err_str = err.decode('utf-8')
-                    if err_str.startswith("* daemon not running"):
-                        print(err_str)
-                        print("ADB started. Trying again...")
-                        time.sleep(2)
-                        attempt += 1
-                        continue
-                    elif "device not found" in err_str:
-                        clear_terminal()
-                        print(f"{Style.RED}Device not found: {err_str}{Style.RESET}")
-                        return None
-                    else:
-                        clear_terminal()
-                        print(f"{Style.RED}Error executing the command: {err_str}{Style.RESET}")
-                        try_again = input("Press 'Y' to try again or 'Q' to quit...").upper()
-                        if try_again != "Q":
-                            attempt += 1
-                            continue
-                        else:
-                            return None
-                if not output:
-                    clear_terminal()
-                    print(f"{Style.RED}Error executing the command: {command}{Style.RESET}")
-                    print("Check if the tool is installed and configured correctly.")
-                    print("See the README to install all the necessary tools.")
-                    try_again = input("\nPress 'Y' to try again or 'Q' to quit...").upper()
-                    if try_again == "Y":
-                        attempt += 1
-                        continue
-                    else:
-                        return None
-                return output.decode("utf-8").strip()
-            except UnicodeDecodeError:
-                try:
-                    clear_terminal()
-                    return output.decode("latin-1").strip()
-                except:
-                    clear_terminal()
-                    print(f"{Style.RED}Error decoding output. Please check your system's default encoding.{Style.RESET}")
-                    return None
-    clear_terminal()
-    print(f"{Style.RED}Error executing the command after {max_attempts} attempts.{Style.RESET}")
-    return None
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
+            stdout, stderr = process.communicate()
 
+            if process.returncode != 0:
+                if "device not found" in stderr:
+                    return False, "Error: Device not found."
+                if "* daemon not running" in stderr:
+                    return False, "ADB daemon is not responding. Please wait..."
+                return False, f"Error executing command:\n{stderr.strip()}"
 
-def get_devices() -> Union[List[Tuple[str, str, str]], None]:
-    """Gets the UDIDs, versions, and models of connected Android devices."""
-    while True:
-        print("Identifying devices connected to the computer...")
-        recognized_devices = execute_command("adb devices")
-        if not recognized_devices:
-            print(f"{Style.RED}Error executing the 'adb devices' command.{Style.RESET}")
-            print("Check if ADB is installed and configured correctly.")
-            print("\n==================================================\n")
-            return None
-        lines = recognized_devices.splitlines()
-        devices = []
-        for line in lines[1:]:  # Ignore the first line (header)
-            parts = line.split()
-            if len(parts) == 2 and parts[1] in ("device", "emulator"):
-                udid = parts[0]
-                android_version = get_android_version(udid)
-                android_model = get_model(udid)
-                if android_version and android_model:
-                    devices.append((udid, android_version, android_model))
-        if devices:
-            print("\n==================================================\n")
-            return devices
-        else:
-            print(f"{Style.RED}No Android devices detected.{Style.RESET} Connect a device to the computer and make sure USB Debugging is enabled.")  # noqa
-            update = input("Press 'R' to refresh the devices list or 'Q' to quit: ").upper()
-            if update == 'R':
-                clear_terminal()
-                continue
-            else:
-                return None
+            return True, stdout.strip()
 
+    except FileNotFoundError:
+        return False, "Error: Command or executable not found. Check your system's PATH."
+    except Exception as e:
+        return False, f"An unexpected error occurred: {e}"
 
-def get_android_version(udid: str) -> Union[str, None]:
-    """Gets the Android version of a specific device."""
-    cmd = f"adb -s {udid} shell getprop ro.build.version.release"
-    return execute_command(cmd)
+def get_device_info(udid: str) -> Tuple[Optional[str], Optional[str]]:
+    """Gets the Android version and model for a given device UDID."""
+    version_cmd = f"adb -s {udid} shell getprop ro.build.version.release"
+    model_cmd = f"adb -s {udid} shell getprop ro.product.model"
+    success_ver, version = execute_command(version_cmd)
+    success_mod, model = execute_command(model_cmd)
+    return (version if success_ver else "N/A", model if success_mod else "N/A")
 
+def get_connected_devices() -> List[Tuple[str, str, str]]:
+    """Gets a list of connected devices with their UDID, version, and model."""
+    devices = []
+    success, output = execute_command("adb devices")
+    if not success or not output:
+        return []
+    lines = output.strip().splitlines()
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == "device":
+            udid = parts[0]
+            version, model = get_device_info(udid)
+            devices.append((udid, version, model))
+    return devices
 
-def get_model(udid: str) -> Union[str, None]:
-    """Gets the model of a specific device."""
-    cmd = f"adb -s {udid} shell getprop ro.product.model"
-    return execute_command(cmd)
-
-
-def select_device(devices: List[Tuple[str, str, str]]) -> Union[str, None]:
-    """Allows the user to select an Android device."""
-    print("\nConnected devices:")
-    for i, (udid, version, model) in enumerate(devices):
-        print(f"{i + 1} - Android {version} - {model} ({udid})")
-
-    while True:
-        choice = input("Select the device number or 'Q' to exit: ").upper()
-        if choice == "Q":
-            return None
-        try:
-            index = int(choice) - 1
-            if 0 <= index < len(devices):
-                clear_terminal()
-                print(f"Selected device: {devices[index][1]} - {devices[index][2]} ({devices[index][0]})")
-                print("\n==================================================\n")
-                return devices[index][0]  # Returns the UDID
-            else:
-                clear_terminal()
-                print(f"{Style.RED}Invalid number.{Style.RESET}")
-        except ValueError:
-            clear_terminal()
-            print(f"{Style.RED}Invalid input.{Style.RESET}")
-
-
-def load_commands_from_file(filename="useful_adb_commands.txt", scrcpy_folder="") -> dict:
-    """Loads ADB commands from a text file."""
+def load_commands_from_file(filepath: Path, scrcpy_path: Optional[Path]) -> Dict[str, Dict[str, str]]:
+    """Loads commands from a text file, creating it if it doesn't exist."""
+    if not filepath.exists():
+        create_default_command_file(filepath)
+    
     commands = {}
     try:
-        with open(filename, "r") as file:
-            i = 1
-            for line in file:
+        with open(filepath, "r", encoding='utf-8') as f:
+            for line in f:
                 line = line.strip()
-                if line and not line.startswith("//"):  # Ignore empty lines and comments
-                    title = line
-                    if line.startswith("echo "):
-                        title = line.split("&&")[0].replace("echo ", "").strip()
-                    commands[str(i)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
-                    i += 1
-    except FileNotFoundError:
-        print(f"{Style.RED}Commands file '{filename}' not found. Creating a default one.{Style.RESET}")
-        # Create a default commands file
-        with open(filename, "w") as file:
-            file.write("// useful_adb_commands.txt\n")
-            file.write("// Add your ADB commands here. Each command should be on a new line.\n")
-            file.write("// Lines starting with // are comments and will be ignored.\n")
-            file.write("echo Opening scrcpy mirroring && {scrcpy_folder}\scrcpy.exe --pause-on-exit=if-error --window-title='{udid}' -s {udid}\n")
-            file.write("echo Opening scrcpy virtual display && {scrcpy_folder}\scrcpy.exe -s {udid} --new-display=1920x1080/284\n")
-        # Try loading again
-        try:
-            with open(filename, "r") as file:
-                i = 1
-                for line in file:
-                    line = line.strip()
-                    if line and not line.startswith("//"):  # Ignore empty lines and comments
-                        title = line
-                        if line.startswith("echo "):
-                            title = line.split("&&")[0].replace("echo ", "").strip()
-                        commands[str(i)] = {"command": line.replace("{scrcpy_folder}", scrcpy_folder), "title": title}
-                        i += 1
-        except FileNotFoundError:
-            clear_terminal()
-            print(f"{Style.RED}Commands file '{filename}' not found.{Style.RESET}")
-            return {}
+                if not line or line.startswith("//"):
+                    continue
+                
+                parts = line.split(";", 1)
+                if len(parts) < 2 or not parts[0].upper().startswith("TITLE:"):
+                    continue
+
+                title = parts[0][len("TITLE:"):].strip()
+                cmd_part = parts[1].strip()
+
+                if "ADB_COMMAND:" in cmd_part.upper():
+                    command = cmd_part[len("ADB_COMMAND:"):].strip()
+                    full_command = f"adb -s {{udid}} shell {command}"
+                    commands[title] = {"command": full_command, "type": "ADB"}
+                elif "SCRCPY_COMMAND:" in cmd_part.upper() and scrcpy_path:
+                    command = cmd_part[len("SCRCPY_COMMAND:"):].strip()
+                    full_command = f'"{scrcpy_path / "scrcpy.exe"}" -s {{udid}} {command}'
+                    commands[title] = {"command": full_command, "type": "SCRCPY"}
+    except IOError as e:
+        messagebox.showerror("File Error", f"Could not read file {filepath}: {e}")
     return commands
 
-
-def execute_selected_command(udid: str, scrcpy_folder: str) -> None:
-    """Executes an ADB command selected by the user."""
-    commands_file = "useful_adb_commands.txt"
-    predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
-    next_command_number = len(predefined_commands) + 1
-
-    print("\nPredefined commands:")
-    for key, command_data in predefined_commands.items():
-        print(f"{key} - {command_data['title'].format(udid=udid)}")
-    print(f"{next_command_number} - Insert custom ADB shell command")
-    print("Q - Exit")
-
-    while True:
-        choice = input("Select the command number or 'Q' to exit: ").upper()
-        if choice == "Q":
-            return
-
-        if choice in predefined_commands:
-            command = predefined_commands[choice]["command"].format(udid=udid)
-            clear_terminal()
-            print(f"Selected command: {predefined_commands[choice]['title'].format(udid=udid)}")
-        elif choice == str(next_command_number):
-            command = input("Insert ADB shell command: ")
-            title = input("Insert a title for this command: ")
-            add_to_file = input("Do you want to add this command to the commands file? (Y/N): ").upper()
-            if add_to_file == "Y":
-                with open(commands_file, "a") as file:
-                    file.write(f"\necho {title} && {command}")
-                print(f"Command '{title}' added to {commands_file}")
-                command = command.replace("{scrcpy_folder}", scrcpy_folder).format(udid=udid)
-                clear_terminal()
-                print(f"Added command: {title}")
-            else:
-                clear_terminal()
-                print("Command not added.")
-                continue
-        else:
-            clear_terminal()
-            print(f"{Style.RED}Invalid option.{Style.RESET}")
-            continue
-
-        print(f"\nExecuting: {Style.BLUE}{command}{Style.RESET} on device {udid}...")
-        output = execute_command(command)
-
-        if output:
-            print(f"Output:\n{output}")
-        else:
-            print(f"{Style.RED}Failed to execute the command.{Style.RESET}")
-        return
-
-
-def check_and_download_scrcpy():
-    """Checks if scrcpy is present and downloads it if not."""
-    scrcpy_folder = None
-    for folder in os.listdir("."):
-        if folder.startswith("scrcpy") and os.path.isdir(folder):
-            scrcpy_folder = folder
-            break
-
-    if scrcpy_folder:
-        scrcpy_executable = os.path.join(scrcpy_folder, "scrcpy.exe")
-        if os.path.exists(scrcpy_executable):
-            return scrcpy_folder
-
-    clear_terminal()
-    print("scrcpy not found. Downloading...")
+def save_commands_to_file(filepath: Path, command: Dict[str, Dict[str, str]]):
+    """Saves the provided commands dictionary back to the file."""
+    command_type = command['type']
+    raw_command = command["command"]
+    command_title = command["title"]
+    # Strip the scrcpy path for saving to keep it portable
+    # This is a bit complex; we need to extract the user-defined part
+    # For simplicity, we assume the command format is consistent.
+    # A more robust solution might store the raw command separately.
+    if command_type == "SCRCPY":
+        f_command = raw_command.split('scrcpy.exe ', 1)[-1].strip()
+    if command_type == "ADB":
+        f_command = raw_command.split('shell ', 1)[-1].strip()
     try:
-        # Get the latest release info from GitHub API
+        # Open in append mode ('a') to add to the end of the file
+        # Add a newline character before writing to ensure it's on a new line
+        with open(filepath, "a", encoding='utf-8') as f:
+            f.write(f"\nTITLE: {command_title} ; {command_type}_COMMAND: {f_command}")
+    except IOError as e:
+        messagebox.showerror("File Error", f"Could not save commands to {filepath}: {e}")
+
+
+def create_default_command_file(filepath: Path):
+    """Creates a default command file."""
+    try:
+        with open(filepath, "w", encoding='utf-8') as f:
+            f.write(f"// {filepath.name}")
+            f.write("\n// Add your commands here. Format: TITLE: My Title ; COMMAND_TYPE: command")
+            f.write("\n// Lines starting with // are ignored.")
+            if filepath == ADB_COMMANDS_FILE:
+                f.write("\n// Use 'adb shell' commands, but leave out that part of the command.")
+                f.write("\nTITLE: Get Android version ; ADB_COMMAND: getprop ro.build.version.release")
+                f.write("\nTITLE: Get device model ; ADB_COMMAND: getprop ro.product.model")
+            elif filepath == SCRCPY_COMMANDS_FILE:
+                f.write("\n// Use 'scrcpy' commands, but leave tthe executable out of the command.")
+                f.write("\nTITLE: Mirror screen (default) ; SCRCPY_COMMAND: --window-title=\"Mirror of {udid}\"")
+                f.write("\nTITLE: Mirror as virtual display (1920x1080) ; SCRCPY_COMMAND: --new-display=1920x1080/284 --window-title=\"Virtual Display of {udid}\"")
+    except IOError as e:
+        messagebox.showerror("File Error", f"Could not create default file {filepath}: {e}")
+
+def check_and_download_scrcpy() -> Optional[Path]:
+    """Checks for a local scrcpy folder, otherwise offers to download it."""
+    for folder in BASE_DIR.glob("scrcpy-win64-*"):
+        if folder.is_dir() and (folder / "scrcpy.exe").exists():
+            return folder
+
+    if not messagebox.askyesno("Scrcpy Not Found", "Scrcpy was not found. Do you want to download the latest version automatically?"):
+        return None
+
+    try:
         url = "https://api.github.com/repos/Genymobile/scrcpy/releases/latest"
-        response = urllib.request.urlopen(url)
-        data = json.loads(response.read().decode())
-        version = data["tag_name"]
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read().decode())
+        
+        asset_url = next((asset["browser_download_url"] for asset in data.get("assets", []) if asset["name"].startswith("scrcpy-win64-")), None)
+        
+        if not asset_url:
+            messagebox.showerror("Download Error", "Could not find the download asset for Windows 64-bit.")
+            return None
 
-        # Determine the correct download URL based on the OS
-        if os.name == 'nt':  # Windows
-            asset_name = f"scrcpy-win64-{version}.zip"
-            download_url = None
-            for asset in data["assets"]:
-                if asset["name"] == asset_name:
-                    download_url = asset["browser_download_url"]
-                    break
-            if not download_url:
-                clear_terminal()
-                print(f"{Style.RED}Could not find the correct asset for Windows.{Style.RESET}")
-                return False
-        else:
-            clear_terminal()
-            print(f"{Style.RED}Automatic download of scrcpy is only supported on Windows.{Style.RESET}")
-            return False
+        zip_path = BASE_DIR / "scrcpy.zip"
+        urllib.request.urlretrieve(asset_url, zip_path)
 
-        # Download the zip file
-        zip_path = "scrcpy.zip"
-        urllib.request.urlretrieve(download_url, zip_path)
-
-        # Extract the zip file
-        scrcpy_folder = f"scrcpy-win64-{version}"
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(".")
-
-        # Rename the extracted folder to a consistent name
-        extracted_folder = None
-        for folder in os.listdir("."):
-            if folder.startswith("scrcpy") and os.path.isdir(folder):
-                extracted_folder = folder
-                break
-
-        if extracted_folder and extracted_folder != scrcpy_folder:
-            os.rename(extracted_folder, scrcpy_folder)
-
-        # Clean up the zip file
-        os.remove(zip_path)
-        clear_terminal()
-        print("scrcpy downloaded and extracted successfully.")
-        return scrcpy_folder
-
-    except urllib.error.URLError as e:
-        clear_terminal()
-        print(f"{Style.RED}Error downloading scrcpy: {e.reason}{Style.RESET}")
-        return False
-    except zipfile.BadZipFile:
-        clear_terminal()
-        print(f"{Style.RED}Error extracting scrcpy. The downloaded file may be corrupted.{Style.RESET}")
-        return False
+            zip_ref.extractall(BASE_DIR)
+        
+        zip_path.unlink()
+        return next((folder for folder in BASE_DIR.glob("scrcpy-win64-*") if folder.is_dir()), None)
 
     except Exception as e:
-        clear_terminal()
-        print(f"{Style.RED}Error downloading or extracting scrcpy: {e}{Style.RESET}")
-        return False
+        messagebox.showerror("Download Error", f"Failed to download or extract Scrcpy: {e}")
+        return None
 
+# --- Main Application Class ---
+class AdbRunnerApp:
+    def __init__(self, root: ttk.Window):
+        self.root = root
+        self.root.title("ADB & Scrcpy Runner")
+        self.root.geometry("900x600")
+
+        self.scrcpy_path = check_and_download_scrcpy()
+        self.commands: Dict[Path, Dict[str, Dict[str, str]]] = {}
+
+        self._create_widgets()
+        self._initial_refresh()
+
+    def _create_widgets(self):
+        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame.pack(fill=BOTH, expand=YES)
+
+        device_frame = ttk.LabelFrame(main_frame, text="Target Device", padding=10)
+        device_frame.pack(fill=X, pady=(0, 10))
+
+        self.device_combobox = ttk.Combobox(device_frame, state="readonly", font=("Segoe UI", 10))
+        self.device_combobox.pack(side=LEFT, fill=X, expand=YES, padx=(0, 10))
+
+        self.refresh_button = ttk.Button(device_frame, text="Refresh", command=self._refresh_devices, bootstyle="secondary")
+        self.refresh_button.pack(side=LEFT)
+        
+        notebook = ttk.Notebook(main_frame)
+        notebook.pack(fill=BOTH, expand=YES)
+
+        self.adb_listbox, self.adb_output_text = self._create_command_tab(notebook, "ADB Commands", ADB_COMMANDS_FILE)
+        
+        if self.scrcpy_path:
+            self.scrcpy_listbox, self.scrcpy_output_text = self._create_command_tab(notebook, "Scrcpy Commands", SCRCPY_COMMANDS_FILE)
+        else:
+            scrcpy_tab = ttk.Frame(notebook, padding=20)
+            notebook.add(scrcpy_tab, text="Scrcpy Commands (Unavailable)")
+            ttk.Label(scrcpy_tab, text="Scrcpy not found. Restart the app to try downloading again.").pack()
+            notebook.tab(1, state="disabled")
+
+    def _create_command_tab(self, parent: ttk.Notebook, title: str, cmd_file: Path) -> Tuple[tk.Listbox, ScrolledText]:
+        tab_frame = ttk.Frame(parent, padding=10)
+        parent.add(tab_frame, text=title)
+
+        paned_window = ttk.PanedWindow(tab_frame, orient=HORIZONTAL)
+        paned_window.pack(fill=BOTH, expand=YES)
+
+        list_frame = ttk.Frame(paned_window)
+        listbox = tk.Listbox(list_frame, height=10, font=("Segoe UI", 10), relief=FLAT, borderwidth=5)
+        scrollbar = ttk.Scrollbar(list_frame, orient=VERTICAL, command=listbox.yview, bootstyle="round")
+        listbox['yscrollcommand'] = scrollbar.set
+        
+        scrollbar.pack(side=RIGHT, fill=Y)
+        listbox.pack(side=LEFT, fill=BOTH, expand=YES)
+        paned_window.add(list_frame, weight=1)
+
+        output_frame = ttk.Frame(paned_window)
+        output_text = ScrolledText(output_frame, wrap=WORD, state=DISABLED, relief=FLAT, borderwidth=5, autohide=True, bootstyle="round")
+        output_text.pack(fill=BOTH, expand=YES)
+        paned_window.add(output_frame, weight=2)
+
+        actions_frame = ttk.Frame(tab_frame)
+        actions_frame.pack(fill=X, pady=(10, 0))
+        
+        ttk.Button(actions_frame, text="Add", command=lambda: self._add_command(cmd_file, listbox), bootstyle="success-outline").pack(side=LEFT, padx=(0, 5))
+        ttk.Button(actions_frame, text="Delete", command=lambda: self._delete_command(cmd_file, listbox), bootstyle="danger-outline").pack(side=LEFT, padx=(0, 5))
+        ttk.Button(actions_frame, text="Refresh List", command=lambda: self._refresh_command_list(cmd_file, listbox), bootstyle="info-outline").pack(side=LEFT)
+        
+        self.execute_button = ttk.Button(actions_frame, text="Execute Command", command=lambda: self._execute_gui_command(listbox, output_text, cmd_file), bootstyle="primary")
+        self.execute_button.pack(side=RIGHT)
+
+        return listbox, output_text
+
+    def _initial_refresh(self):
+        self._refresh_devices()
+        self._refresh_command_list(ADB_COMMANDS_FILE, self.adb_listbox)
+        if self.scrcpy_path:
+            self._refresh_command_list(SCRCPY_COMMANDS_FILE, self.scrcpy_listbox)
+            self._update_output_text(self.scrcpy_output_text, f"\nScrcpy found at: {self.scrcpy_path}\n", clear=False)
+
+    def _refresh_devices(self):
+        self.device_combobox['values'] = []
+        self.device_combobox.set("Searching for devices...")
+        self.refresh_button.config(state=DISABLED)
+        
+        thread = threading.Thread(target=self._get_devices_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _get_devices_thread(self):
+        devices = get_connected_devices()
+        self.root.after(0, self._update_device_list, devices)
+        self.root.after(0, self._update_output_text(self.adb_output_text, f"\nDevices found:\n", clear=True))
+        for device in devices:
+            self.root.after(0, self._update_output_text(self.adb_output_text, f"\nModel: {device[2]} - Android {device[1]} - UDID: {device[0]}", clear=False))
+
+    def _update_device_list(self, devices: List[Tuple[str, str, str]]):
+        if devices:
+            device_strings = [f"{model} ({udid})" for udid, _, model in devices]
+            self.device_combobox['values'] = device_strings
+            self.device_combobox.set(device_strings[0])
+        else:
+            self.device_combobox.set("No devices found")
+        self.refresh_button.config(state=NORMAL)
+
+    def _refresh_command_list(self, cmd_file: Path, listbox: tk.Listbox):
+        listbox.delete(0, tk.END)
+        self.commands[cmd_file] = load_commands_from_file(cmd_file, self.scrcpy_path)
+        for title in sorted(self.commands[cmd_file].keys()):
+            listbox.insert(END, title)
+
+    def _execute_gui_command(self, listbox: tk.Listbox, output_text: ScrolledText, cmd_file: Path):
+        if not listbox.curselection():
+            messagebox.showwarning("No Selection", "Please select a command to execute.")
+            return
+        selected_title = listbox.get(listbox.curselection())
+        
+        selected_device = self.device_combobox.get()
+        if not selected_device or "No devices" in selected_device:
+            messagebox.showwarning("No Device", "Please select a target device.")
+            return
+        
+        udid = selected_device.split('(')[-1].replace(')', '')
+        cmd_data = self.commands[cmd_file].get(selected_title)
+        
+        command_str = cmd_data['command'].format(udid=udid)
+        
+        self._update_output_text(output_text, f"Executing: {command_str}\n\n", clear=True)
+        self.execute_button.config(state=DISABLED)
+
+        thread = threading.Thread(target=self._run_command_and_update_gui, args=(command_str, output_text))
+        thread.daemon = True
+        thread.start()
+
+    def _run_command_and_update_gui(self, command: str, output_widget: ScrolledText):
+        _, output = execute_command(command)
+        self.root.after(0, self._update_output_text, output_widget, output, False)
+        self.root.after(0, lambda: self.execute_button.config(state=NORMAL))
+
+    def _update_output_text(self, widget: ScrolledText, result: str, clear: bool):
+        widget.text.config(state=NORMAL)
+        if clear:
+            widget.delete("1.0", END)
+        widget.insert(END, result)
+        widget.text.config(state=DISABLED)
+        widget.see(END)
+        
+    def _add_command(self, cmd_file: Path, listbox: tk.Listbox):
+        title = simpledialog.askstring("Add Command", "Enter a title for the new command:", parent=self.root)
+        if title == "": return
+
+        command_type = "ADB" if cmd_file == ADB_COMMANDS_FILE else "SCRCPY"
+        prompt = f"Enter the {command_type} command arguments:"
+        raw_command = simpledialog.askstring("Add Command", prompt, parent=self.root)
+        if raw_command == "": return
+
+        self.command = {"title": title, "type": command_type, "command": raw_command}
+        save_commands_to_file(cmd_file, self.command)
+        self._refresh_command_list(cmd_file, listbox)
+
+    def _delete_command(self, cmd_file: Path, listbox: tk.Listbox):
+        if not listbox.curselection():
+            messagebox.showwarning("No Selection", "Please select a command to delete.")
+            return
+        selected_title = listbox.get(listbox.curselection())
+
+        if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to delete '{selected_title}'?"):
+            try:
+                # Read all lines, filter out the one to delete, and write back
+                with open(cmd_file, "r", encoding='utf-8') as f_read:
+                    lines = f_read.readlines()
+                
+                with open(cmd_file, "w", encoding='utf-8') as f_write:
+                    for line in lines:
+                        # Check if the line contains the selected title, case-insensitively for robustness
+                        # and ensure it's a command line, not a comment or empty line
+                        if f"TITLE: {selected_title} ;" not in line:
+                            f_write.write(line)
+                
+                self._refresh_command_list(cmd_file, listbox)
+                messagebox.showinfo("Command Deleted", f"Command '{selected_title}' deleted successfully.")
+            except IOError as e:
+                messagebox.showerror("File Error", f"Could not modify file {cmd_file}: {e}")
 
 if __name__ == "__main__":
-    scrcpy_folder = check_and_download_scrcpy()
-    if not scrcpy_folder:
-        clear_terminal()
-        print("Failed to download scrcpy. Ensure you have the necessary tools installed manually.")
-        sys.exit(1)
-
-    def get_devices_gui():
-        """Gets the UDIDs, versions, and models of connected Android devices."""
-        devices = []
-        recognized_devices = execute_command("adb devices")
-        if not recognized_devices:
-            print(f"{Style.RED}Error executing the 'adb devices' command.{Style.RESET}")
-            print("Check if ADB is installed and configured correctly.")
-            print("\n==================================================\n")
-            return None
-        lines = recognized_devices.splitlines()
-        for line in lines[1:]:  # Ignore the first line (header)
-            parts = line.split()
-            if len(parts) == 2 and parts[1] in ("device", "emulator"):
-                udid = parts[0]
-                android_version = get_android_version(udid)
-                android_model = get_model(udid)
-                if android_version and android_model:
-                    devices.append((udid, android_version, android_model))
-        if devices:
-            print("\n==================================================\n")
-            return devices
-        else:
-            print(f"{Style.RED}No Android devices detected.{Style.RESET} Connect a device to the computer and make sure USB Debugging is enabled.")  # noqa
-            return None
-
-    def execute_selected_command_gui(udid: str, scrcpy_folder: str, command: str) -> None:
-        """Executes an ADB command selected by the user."""
-        output_text.config(state=tk.NORMAL)  # Enable editing
-        output_text.delete("1.0", tk.END)  # Clear previous output
-        output_text.config(state=tk.DISABLED)  # Disable editing
-
-        print(f"\nExecuting: {Style.BLUE}{command}{Style.RESET} on device {udid}...")
-        output = execute_command(command)
-
-        output_text.config(state=tk.NORMAL)  # Enable editing
-        if output:
-            output_text.insert(tk.END, output)
-        else:
-            output_text.insert(tk.END, f"{Style.RED}Failed to execute the command.{Style.RESET}")
-        output_text.config(state=tk.DISABLED)  # Disable editing
-        return
-
-    def refresh_devices():
-        devices = get_devices_gui()
-        if devices:
-            device_combobox['values'] = [f"{version} - {model} ({udid})" for udid, version, model in devices]
-        else:
-            device_combobox['values'] = []
-
-    def execute_command_gui():
-        selected_device = device_combobox.get()
-        if not selected_device:
-            print("No device selected.")
-            return
-
-        udid = selected_device.split('(')[-1].replace(')', '')
-        selected_command = command_listbox.get(tk.ANCHOR)
-        if not selected_command:
-            print("No command selected.")
-            return
-
-        commands_file = "useful_adb_commands.txt"
-        predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
-        # Find the key that matches the selected command text
-        for key, command_data in predefined_commands.items():
-            if f"{key} - {command_data['title']}" == selected_command:
-                command = command_data["command"].format(udid=udid)
-                execute_selected_command_gui(udid, scrcpy_folder, command)
-                return
-
-        print(f"Command not found: {selected_command}")
-
-    def edit_commands_file():
-        try:
-            os.startfile("useful_adb_commands.txt")  # For Windows
-        except AttributeError:
-            subprocess.call(['open', "useful_adb_commands.txt"])  # For macOS
-        except:
-            subprocess.call(['xdg-open', "useful_adb_commands.txt"])  # For Linux
-
-    def refresh_commands():
-        # Clear the listbox
-        command_listbox.delete(0, tk.END)
-
-        # Reload commands from the file
-        commands_file = "useful_adb_commands.txt"
-        predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
-        i = 1
-        for key, command_data in predefined_commands.items():
-            command_listbox.insert(tk.END, f"{i} - {command_data['title']}")
-            i += 1
-
-
-    root = tk.Tk()
-    root.title("ADB Runner")
-
-    # Device Selection Frame
-    device_frame = ttk.LabelFrame(root, text="Select Device")
-    device_frame.pack(padx=10, pady=10, fill=tk.X)
-
-    device_combobox = ttk.Combobox(device_frame, state="readonly")
-    device_combobox.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
-
-    refresh_button = ttk.Button(device_frame, text="Refresh Devices", command=refresh_devices)
-    refresh_button.pack(side=tk.LEFT, padx=5)
-
-    # Command Selection Frame
-    command_frame = ttk.LabelFrame(root, text="Select Command")
-    command_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-
-    command_listbox = tk.Listbox(command_frame, height=10, width=50)
-    command_listbox.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.BOTH, expand=True)
-
-    scrollbar_listbox = ttk.Scrollbar(command_frame, orient=tk.VERTICAL, command=command_listbox.yview)
-    scrollbar_listbox.pack(side=tk.LEFT, fill=tk.Y)
-    command_listbox['yscrollcommand'] = scrollbar_listbox.set
-
-    output_text = tk.Text(command_frame, wrap=tk.WORD, state=tk.DISABLED)
-    output_text.pack(side=tk.RIGHT, padx=5, pady=5, fill=tk.BOTH, expand=True)
-
-    scrollbar_output = ttk.Scrollbar(command_frame, orient=tk.VERTICAL, command=output_text.yview)
-    scrollbar_output.pack(side=tk.RIGHT, fill=tk.Y)
-    output_text['yscrollcommand'] = scrollbar_output.set
-
-    # Load commands into the listbox
-    commands_file = "useful_adb_commands.txt"
-    predefined_commands = load_commands_from_file(commands_file, scrcpy_folder)
-    i = 1
-    for key, command_data in predefined_commands.items():
-        command_listbox.insert(tk.END, f"{i} - {command_data['title']}")
-        i += 1
-
-    # Actions Frame
-    actions_frame = ttk.Frame(root)
-    actions_frame.pack(padx=10, pady=10, fill=tk.X)
-
-    edit_commands_button = ttk.Button(actions_frame, text="Edit Commands File", command=edit_commands_file)
-    edit_commands_button.pack(side=tk.LEFT)
-
-    refresh_commands_button = ttk.Button(actions_frame, text="Refresh Commands", command=refresh_commands)
-    refresh_commands_button.pack(side=tk.LEFT)
-
-    execute_button = ttk.Button(actions_frame, text="Execute Command", command=execute_command_gui)
-    execute_button.pack(side=tk.RIGHT)
-
-    # Initial device refresh
-    refresh_devices()
-
+    hide_console()
+    root = ttk.Window(themename="darkly")
+    app = AdbRunnerApp(root)
     root.mainloop()

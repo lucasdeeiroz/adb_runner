@@ -1,0 +1,5 @@
+// useful_scrcpy_commands.txt
+// Add your commands here. Each command should be on a new line.
+// Lines starting with // are comments and will be ignored.
+TITLE: Mirror screen (default) ; SCRCPY_COMMAND: --window-title="Mirror of {udid}"
+TITLE: Mirror as virtual display (1920x1080) ; SCRCPY_COMMAND: --new-display=1920x1080/284 --window-title="Virtual Display of {udid}"
