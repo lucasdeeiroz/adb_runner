@@ -34,24 +34,20 @@ if sys.platform == "win32":
 
 
 # --- Constants ---
-# **FIX:** Determine the base directory correctly whether running as a script or a frozen executable.
 if getattr(sys, 'frozen', False):
-    # If the application is run as a bundle, the BASE_DIR is the executable directory
     BASE_DIR = Path(sys.executable).parent
 else:
-    # If the application is run as a script, the BASE_DIR is the script directory
     BASE_DIR = Path(__file__).resolve().parent
 
 ADB_COMMANDS_FILE = BASE_DIR / "useful_adb_commands.txt"
 SCRCPY_COMMANDS_FILE = BASE_DIR / "useful_scrcpy_commands.txt"
 
 
-# --- New Console Redirector Class ---
+# --- Console Redirector Class ---
 class ConsoleRedirector:
     """A class to redirect stdout/stderr to a tkinter text widget."""
     def __init__(self, text_widget: ScrolledText):
         self.text_widget = text_widget
-        # Ensure the underlying text widget is writable at the start
         self.text_widget.text.config(state=NORMAL)
 
     def write(self, text: str):
@@ -61,19 +57,17 @@ class ConsoleRedirector:
 
     def flush(self):
         """Flush method is required for stream-like objects."""
-        # Tkinter's Text widget is flushed automatically.
         pass
 
-# --- New Scrcpy Window Class ---
+# --- Scrcpy Window Class ---
 class ScrcpyEmbedWindow(tk.Toplevel):
     """A Toplevel window to display and embed a scrcpy instance."""
     def __init__(self, parent, command_template: str, udid: str, title: str):
         super().__init__(parent)
         self.title(title)
-        self.geometry("1200x800") # Increased width for new panel
+        self.geometry("1200x800")
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # --- Scrcpy Process Attributes ---
         self.command_template = command_template
         self.udid = udid
         self.scrcpy_process = None
@@ -81,10 +75,9 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         self.original_style = None
         self.original_parent = None
         self.output_queue = Queue()
-        self.aspect_ratio = None # Stores the device's screen aspect ratio
-        self.resize_job = None # To hold the 'after' job ID for debouncing
+        self.aspect_ratio = None
+        self.resize_job = None
 
-        # --- New Feature Attributes ---
         self.is_recording = False
         self.recording_process = None
         self.recording_device_path = ""
@@ -93,9 +86,7 @@ class ScrcpyEmbedWindow(tk.Toplevel):
 
         self._setup_widgets()
         self._start_scrcpy()
-        # Start checking the queue for output from the scrcpy process
         self.after(100, self._check_output_queue)
-        # Bind the resize event of the Toplevel window
         self.bind("<Configure>", self._on_window_resize)
 
     def _setup_widgets(self):
@@ -103,29 +94,23 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         main_frame = ttk.Frame(self, padding=5)
         main_frame.pack(fill=BOTH, expand=YES)
         
-        # Main horizontal paned window splits Commands area from Mirror area
         self.main_paned_window = ttk.PanedWindow(main_frame, orient=HORIZONTAL)
         self.main_paned_window.pack(fill=BOTH, expand=YES)
 
-        # --- Left Pane: Contains Commands and Output vertically ---
         left_pane_container = ttk.Frame(self.main_paned_window)
         self.main_paned_window.add(left_pane_container, weight=1)
 
-        # This vertical paned window allows hiding/showing the output console
         self.left_paned_window = ttk.PanedWindow(left_pane_container, orient=VERTICAL)
         self.left_paned_window.pack(fill=BOTH, expand=YES)
 
-        # Top part of the left pane: The new commands widget
         commands_frame = ttk.LabelFrame(self.left_paned_window, text="Scrcpy Commands", padding=10)
         self.left_paned_window.add(commands_frame, weight=1)
 
-        # Bottom part of the left pane: The Scrcpy Output console
         self.output_frame = ttk.LabelFrame(self.left_paned_window, text="Scrcpy Output", padding=5)
         self.output_text = ScrolledText(self.output_frame, wrap=WORD, state=DISABLED, autohide=True)
         self.output_text.pack(fill=BOTH, expand=YES)
-        self.left_paned_window.add(self.output_frame, weight=1) # Initially visible
+        self.left_paned_window.add(self.output_frame, weight=1)
 
-        # --- Populate the Commands Frame with Buttons ---
         self.screenshot_button = ttk.Button(commands_frame, text="Take Screenshot", command=self._take_screenshot)
         self.screenshot_button.pack(fill=X, pady=5, padx=5)
 
@@ -135,7 +120,6 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         self.toggle_output_button = ttk.Button(commands_frame, text="Hide Output", command=self._toggle_output_visibility, bootstyle="secondary")
         self.toggle_output_button.pack(fill=X, pady=5, padx=5)
 
-        # --- Right Pane: The Embedded Screen Mirror ---
         self.embed_frame = ttk.LabelFrame(self.main_paned_window, text="Screen Mirror", padding=5)
         self.main_paned_window.add(self.embed_frame, weight=3)
         
@@ -148,16 +132,10 @@ class ScrcpyEmbedWindow(tk.Toplevel):
     def _run_and_embed_scrcpy(self):
         """Runs scrcpy, captures its output, and embeds its window."""
         try:
-            # Generate a unique window title to find the window reliably.
             self.unique_title = f"scrcpy_{int(time.time() * 1000)}"
-            
-            # Format the base command with the device UDID.
             command_with_udid = self.command_template.format(udid=self.udid)
-            
-            # Robustly add the window title. This ensures it's always present.
             command_to_run = f'{command_with_udid} --window-title="{self.unique_title}"'
 
-            # CREATE_NO_WINDOW prevents the child process from creating its own console window.
             creationflags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             
             self.scrcpy_process = subprocess.Popen(
@@ -171,12 +149,10 @@ class ScrcpyEmbedWindow(tk.Toplevel):
                 creationflags=creationflags
             )
 
-            # Start a thread to read the process output
             output_thread = threading.Thread(target=self._pipe_output_to_queue)
             output_thread.daemon = True
             output_thread.start()
 
-            # Find and embed the scrcpy window
             self._find_and_embed_window()
 
         except Exception as e:
@@ -194,57 +170,50 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         while not self.output_queue.empty():
             try:
                 line = self.output_queue.get_nowait()
-                # Access the inner .text widget to configure its state
                 self.output_text.text.config(state=NORMAL)
                 self.output_text.insert(END, line)
                 self.output_text.see(END)
                 self.output_text.text.config(state=DISABLED)
 
-                # Check for the texture info line to set the aspect ratio
                 if "INFO: Texture:" in line and not self.aspect_ratio:
                     try:
                         resolution = line.split(":")[-1].strip()
                         width, height = map(int, resolution.split('x'))
                         if height > 0:
                             self.aspect_ratio = width / height
-                            # Schedule the initial resize on the main GUI thread
                             self.after(100, self._adjust_aspect_ratio)
                     except (ValueError, IndexError):
-                        pass # Ignore parsing errors
+                        pass
             except Empty:
                 pass
         self.after(100, self._check_output_queue)
 
     def _on_window_resize(self, event=None):
-        """Callback for when the main Toplevel window is resized. Debounces events to prevent crashing."""
+        """Callback for when the main Toplevel window is resized. Debounces events."""
         if self.aspect_ratio:
-            # Cancel any previously scheduled resize job
             if self.resize_job:
                 self.after_cancel(self.resize_job)
-            # Schedule a new resize job after a short delay (100ms)
             self.resize_job = self.after(100, self._adjust_aspect_ratio)
 
     def _adjust_aspect_ratio(self):
         """Adjusts the paned window sash to match the device's aspect ratio."""
-        self.resize_job = None # Clear the job ID since this job is now running
+        self.resize_job = None
         if not self.aspect_ratio:
             return
 
-        self.update_idletasks() # Ensure window dimensions are up-to-date
+        self.update_idletasks()
 
         pane_height = self.embed_frame.winfo_height()
-        if pane_height <= 1: # Window might not be fully rendered yet
-            self.after(100, self._adjust_aspect_ratio) # Retry
+        if pane_height <= 1:
+            self.after(100, self._adjust_aspect_ratio)
             return
 
         ideal_mirror_width = int(pane_height * self.aspect_ratio)
         total_width = self.main_paned_window.winfo_width()
         
-        # The sash position is the width of the first (left) pane.
         new_sash_pos = total_width - ideal_mirror_width
 
-        # Set some reasonable bounds for the sash position
-        min_output_width = 250 # Increased min width for command panel
+        min_output_width = 250
         if new_sash_pos < min_output_width:
             new_sash_pos = min_output_width
         if new_sash_pos > total_width - min_output_width:
@@ -253,7 +222,6 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         try:
             self.main_paned_window.sashpos(0, new_sash_pos)
         except tk.TclError:
-            # This can happen if the window is being destroyed, just ignore it.
             pass
 
     def _find_and_embed_window(self):
@@ -261,7 +229,6 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         start_time = time.time()
         
         while time.time() - start_time < 15:
-            # Use the more reliable FindWindow function with the unique title.
             hwnd = win32gui.FindWindow(None, self.unique_title)
             if hwnd:
                 self.scrcpy_hwnd = hwnd
@@ -326,8 +293,6 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         else:
             final_close_actions()
 
-    # --- New Feature Methods ---
-
     def _toggle_output_visibility(self):
         """Shows or hides the Scrcpy Output console."""
         if self.output_is_visible:
@@ -358,14 +323,12 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         local_filepath = screenshots_dir / local_filename
 
         try:
-            # 1. Capture on device
             capture_cmd = f"adb -s {self.udid} shell screencap -p {device_filename}"
             success_cap, out_cap = execute_command(capture_cmd)
             if not success_cap:
                 self.output_queue.put(f"ERROR: Failed to capture screenshot.\n{out_cap}\n")
                 return
 
-            # 2. Pull from device
             pull_cmd = f"adb -s {self.udid} pull {device_filename} \"{local_filepath}\""
             success_pull, out_pull = execute_command(pull_cmd)
             if not success_pull:
@@ -373,11 +336,9 @@ class ScrcpyEmbedWindow(tk.Toplevel):
             else:
                 self.output_queue.put(f"SUCCESS: Screenshot saved to {local_filepath}\n")
 
-            # 3. Clean up on device
             rm_cmd = f"adb -s {self.udid} shell rm {device_filename}"
             execute_command(rm_cmd)
         finally:
-            # Re-enable the button on the main GUI thread
             self.master.after(0, lambda: self.screenshot_button.config(state=NORMAL))
 
     def _toggle_recording(self):
@@ -408,13 +369,12 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         self.output_queue.put(f"INFO: Starting recording...\n> {' '.join(command_list)}\n")
 
         try:
-            # On Windows, CREATE_NEW_PROCESS_GROUP is necessary to send CTRL_C_EVENT later.
             p_flags = 0
             if sys.platform == "win32":
                 p_flags = subprocess.CREATE_NEW_PROCESS_GROUP
 
             self.recording_process = subprocess.Popen(
-                command_list, # Use a list of args, not a string with shell=True
+                command_list,
                 stdout=subprocess.PIPE, 
                 stderr=subprocess.PIPE,
                 text=True, 
@@ -443,31 +403,20 @@ class ScrcpyEmbedWindow(tk.Toplevel):
             self.master.after(0, self._update_recording_ui, False)
             return
 
-        # Sending CTRL_C_EVENT (or SIGINT) is the equivalent of pressing Ctrl+C,
-        # which is the correct way to gracefully stop `screenrecord`.
         try:
-            if sys.platform == "win32":
-                # os.kill is the correct way to send this signal to a process group on Windows.
-                # os.kill(self.recording_process.pid, signal.CTRL_C_EVENT)
-                self.recording_process.kill() # Killing this way since CTRL_C_EVENT may not work in all environments
-            else:
-                # On other platforms, SIGINT is the standard.
-                # os.kill(self.recording_process.pid, signal.SIGINT)
-                self.recording_process.kill()
-
-            # Wait for the process to terminate gracefully
+            self.recording_process.kill()
             self.recording_process.wait(timeout=10)
-            self.output_queue.put("INFO: Recording process stopped gracefully.\n")
+            self.output_queue.put("INFO: Recording process stopped.\n")
             self.output_queue.put("INFO: Now trying to save the file...\n")
 
         except subprocess.TimeoutExpired:
             self.output_queue.put("WARNING: Recording process did not stop in time, killing it forcefully.\n")
-            self.recording_process.kill() # Fallback to killing if it doesn't respond
+            self.recording_process.kill()
         except Exception as e:
             self.output_queue.put(f"ERROR: An error occurred while stopping the recording: {e}\n")
-            self.recording_process.kill() # Kill on any other error to be safe
+            self.recording_process.kill()
 
-        time.sleep(2) # Give the device a moment to finalize the file
+        time.sleep(2)
 
         recordings_dir = BASE_DIR / "recordings"
         local_filename = Path(self.recording_device_path).name
@@ -498,12 +447,73 @@ class ScrcpyEmbedWindow(tk.Toplevel):
 
 # --- Core Logic Functions (Separated from GUI) ---
 
+def manage_adb_server(start: bool = True):
+    """
+    Starts or kills the ADB server to ensure a single, managed instance.
+    This prevents multiple adb.exe processes from being created and left running.
+    """
+    command = "adb start-server" if start else "adb kill-server"
+    action = "Starting" if start else "Killing"
+    print(f"INFO: {action} ADB server...")
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        )
+        stdout, stderr = process.communicate(timeout=10)
+        if process.returncode != 0:
+            print(f"WARNING: Command '{command}' may have failed.")
+            error_output = (stdout.decode('utf-8', 'replace') + stderr.decode('utf-8', 'replace')).strip()
+            if error_output:
+                 print(f"Output:\n{error_output}")
+        else:
+            print(f"INFO: ADB server command '{command}' executed successfully.")
+
+    except subprocess.TimeoutExpired:
+        print(f"ERROR: Timeout expired for command '{command}'. Killing process.")
+        process.kill()
+    except Exception as e:
+        print(f"ERROR: Failed to execute '{command}': {e}")
+
+# SOLUTION: New function to manage scrcpy processes.
+def manage_scrcpy_processes():
+    """
+    Kills any running scrcpy.exe processes to prevent duplicates and ensure cleanup.
+    This is a Windows-specific solution using taskkill.
+    """
+    if sys.platform != "win32":
+        return
+
+    command = "taskkill /F /IM scrcpy.exe"
+    print("INFO: Killing any lingering scrcpy.exe processes...")
+    try:
+        # We run this command to clean up. It's okay if it fails (e.g., if no processes are found).
+        process = subprocess.Popen(
+            command,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        process.communicate(timeout=10)
+        print("INFO: Scrcpy cleanup command executed.")
+    except subprocess.TimeoutExpired:
+        print(f"ERROR: Timeout expired for scrcpy cleanup. Killing process.")
+        process.kill()
+    except Exception as e:
+        # We log the error but don't bother the user, as this is a cleanup task.
+        print(f"NOTE: Could not perform scrcpy cleanup: {e}")
+
+
 def hide_console():
     """Hides the console window on Windows."""
     if sys.platform == "win32":
         console_window = ctypes.windll.kernel32.GetConsoleWindow()
         if console_window != 0:
-            ctypes.windll.user32.ShowWindow(console_window, 0) # 0 = SW_HIDE
+            ctypes.windll.user32.ShowWindow(console_window, 0)
 
 def execute_command(command: str) -> Tuple[bool, str]:
     """Executes a shell command and returns a tuple (success, output)."""
@@ -584,7 +594,6 @@ def load_commands_from_file(filepath: Path, scrcpy_path: Optional[Path]) -> Dict
                     commands[title] = {"command": full_command, "type": "ADB"}
                 elif "SCRCPY_COMMAND:" in cmd_part.upper() and scrcpy_path:
                     command = cmd_part[len("SCRCPY_COMMAND:"):].strip()
-                    # The {udid} placeholder is for the device serial.
                     full_command = f'"{scrcpy_path / "scrcpy.exe"}" -s {{udid}} {command}'
                     commands[title] = {"command": full_command, "type": "SCRCPY"}
     except IOError as e:
@@ -596,17 +605,12 @@ def save_commands_to_file(filepath: Path, command: Dict[str, Dict[str, str]]):
     command_type = command['type']
     raw_command = command["command"]
     command_title = command["title"]
-    # Strip the scrcpy path for saving to keep it portable
-    # This is a bit complex; we need to extract the user-defined part
-    # For simplicity, we assume the command format is consistent.
-    # A more robust solution might store the raw command separately.
+
     if command_type == "SCRCPY":
         f_command = raw_command.split('scrcpy.exe ', 1)[-1].strip()
     if command_type == "ADB":
         f_command = raw_command.split('shell ', 1)[-1].strip()
     try:
-        # Open in append mode ('a') to add to the end of the file
-        # Add a newline character before writing to ensure it's on a new line
         with open(filepath, "a", encoding='utf-8') as f:
             f.write(f"\nTITLE: {command_title} ; {command_type}_COMMAND: {f_command}")
     except IOError as e:
@@ -669,14 +673,31 @@ class AdbRunnerApp:
     def __init__(self, root: ttk.Window):
         self.root = root
         self.root.title("ADB & Scrcpy Runner")
-        self.root.geometry("900x750") # Increased height for console
+        self.root.geometry("900x750")
+
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
         self.scrcpy_path = check_and_download_scrcpy()
-        self.commands: Dict[Path, Dict[str, Dict[str, str]]] = {}
+        self.commands: Dict[Path, Dict[str, str]] = {}
 
         self._create_widgets()
         self._redirect_console()
+
+        # SOLUTION: Start the ADB server and kill any old scrcpy processes on launch.
+        threading.Thread(target=manage_adb_server, args=(True,), daemon=True).start()
+        threading.Thread(target=manage_scrcpy_processes, daemon=True).start()
+
         self._initial_refresh()
+
+    # SOLUTION: Updated method to handle application closing gracefully for both ADB and Scrcpy.
+    def _on_closing(self):
+        """Handles cleanup before the application window is destroyed."""
+        print("INFO: Close button clicked. Shutting down ADB server and scrcpy processes...")
+        # Kill the ADB server and any running scrcpy instances in the background.
+        threading.Thread(target=manage_adb_server, args=(False,), daemon=True).start()
+        threading.Thread(target=manage_scrcpy_processes, daemon=True).start()
+        # Give the commands a moment to dispatch before destroying the window.
+        self.root.after(300, self.root.destroy)
 
     def _create_widgets(self):
         main_frame = ttk.Frame(self.root, padding=10)
@@ -756,21 +777,17 @@ class AdbRunnerApp:
         connect_tab = ttk.Frame(parent, padding=20)
         parent.add(connect_tab, text="Connect")
 
-        # --- Pairing Frame ---
         pair_frame = ttk.LabelFrame(connect_tab, text="Pair Device", padding=15)
         pair_frame.pack(fill=X, pady=(0, 20))
 
-        # IP Address
         ttk.Label(pair_frame, text="IP Address:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.pair_ip_entry = ttk.Entry(pair_frame, width=30)
         self.pair_ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        # Port
         ttk.Label(pair_frame, text="Port:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.pair_port_entry = ttk.Entry(pair_frame, width=10)
         self.pair_port_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
 
-        # Pairing Code
         ttk.Label(pair_frame, text="Pairing Code:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.pair_code_entry = ttk.Entry(pair_frame, width=10)
         self.pair_code_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
@@ -779,16 +796,13 @@ class AdbRunnerApp:
         self.pair_button.grid(row=3, column=1, padx=5, pady=10, sticky="e")
         pair_frame.columnconfigure(1, weight=1)
 
-        # --- Connection Frame ---
         connect_frame = ttk.LabelFrame(connect_tab, text="Connect Device", padding=15)
         connect_frame.pack(fill=X, pady=(0, 20))
 
-        # IP Address
         ttk.Label(connect_frame, text="IP Address:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.connect_ip_entry = ttk.Entry(connect_frame, width=30)
         self.connect_ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
 
-        # Port
         ttk.Label(connect_frame, text="Port:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.connect_port_entry = ttk.Entry(connect_frame, width=10)
         self.connect_port_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
@@ -799,7 +813,6 @@ class AdbRunnerApp:
         self.connect_button.grid(row=2, column=1, padx=5, pady=10, sticky="e")
         connect_frame.columnconfigure(1, weight=1)
 
-        # --- Output Frame ---
         output_frame = ttk.LabelFrame(connect_tab, text="Output", padding=10)
         output_frame.pack(fill=BOTH, expand=YES)
         self.connect_output_text = ScrolledText(output_frame, wrap=WORD, state=DISABLED, autohide=True)
@@ -816,7 +829,6 @@ class AdbRunnerApp:
             return
 
         command = f"adb pair {ip}:{port}"
-        # The pairing code is sent as input to the process
         self._update_output_text(self.connect_output_text, f"Attempting to pair with {ip}:{port}...\n", clear=True)
         self.pair_button.config(state=DISABLED)
 
@@ -838,7 +850,6 @@ class AdbRunnerApp:
                 errors='replace',
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
-            # Send the pairing code to the process's stdin
             stdout, stderr = process.communicate(input=f"{code}\n")
             
             output = stdout + stderr
@@ -865,7 +876,6 @@ class AdbRunnerApp:
         self._update_output_text(self.connect_output_text, f"Attempting to connect to {ip}:{port}...\n", clear=True)
         self.connect_button.config(state=DISABLED)
 
-        # Use the generic command runner for the connect command
         thread = threading.Thread(target=self._run_command_and_update_gui, args=(command, self.connect_output_text, self.connect_button, True))
         thread.daemon = True
         thread.start()
@@ -888,7 +898,6 @@ class AdbRunnerApp:
         self._update_output_text(self.connect_output_text, f"Attempting to disconnect...\n", clear=True)
         self.disconnect_button.config(state=DISABLED)
 
-        # Use the generic command runner for the disconnect command
         thread = threading.Thread(target=self._run_command_and_update_gui, args=(command, self.connect_output_text, self.disconnect_button, True))
         thread.daemon = True
         thread.start()
@@ -950,7 +959,6 @@ SOFTWARE."""
         license_text_widget.insert(END, license_content)
         license_text_widget.text.config(state=DISABLED)
         
-        # --- Integrated Console Widget ---
         console_frame = ttk.LabelFrame(about_tab, text="Console Output", padding=10)
         console_frame.pack(fill=X, pady=(0, 10))
         self.console_output_text = ScrolledText(console_frame, height=1, wrap=WORD, state=DISABLED, relief=FLAT, borderwidth=5, autohide=True, bootstyle="round")
@@ -1016,15 +1024,12 @@ SOFTWARE."""
 
         command_template = cmd_data['command']
         
-        # Route command based on its type
         if cmd_data.get('type') == 'SCRCPY':
             if sys.platform != "win32":
                 messagebox.showerror("Unsupported OS", "Scrcpy embedding is only supported on Windows.")
                 return
-            # Pass the command template and the actual device UDID separately
             ScrcpyEmbedWindow(self.root, command_template, udid, f"Scrcpy - {selected_title}")
-        else: # It's an ADB command
-            # For ADB, format the command directly with the UDID.
+        else:
             final_command = command_template.format(udid=udid)
             self._update_output_text(output_text, f"Executing: {final_command}\n\n", clear=True)
             self.execute_button.config(state=DISABLED)
@@ -1074,14 +1079,11 @@ SOFTWARE."""
 
         if messagebox.askyesno("Confirm Deletion", f"Are you sure you want to delete '{selected_title}'?"):
             try:
-                # Read all lines, filter out the one to delete, and write back
                 with open(cmd_file, "r", encoding='utf-8') as f_read:
                     lines = f_read.readlines()
                 
                 with open(cmd_file, "w", encoding='utf-8') as f_write:
                     for line in lines:
-                        # Check if the line contains the selected title, case-insensitively for robustness
-                        # and ensure it's a command line, not a comment or empty line
                         if f"TITLE: {selected_title} ;" not in line:
                             f_write.write(line)
                 
@@ -1095,5 +1097,3 @@ if __name__ == "__main__":
     root = ttk.Window(themename="darkly")
     app = AdbRunnerApp(root)
     root.mainloop()
-
-# End of adb_runner.py
