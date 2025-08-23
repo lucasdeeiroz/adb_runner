@@ -12,8 +12,11 @@ import threading
 from typing import List, Tuple, Dict, Optional
 from pathlib import Path
 import time
+import datetime
 from queue import Queue, Empty
 import ctypes
+import os
+import signal
 
 # --- Conditional import for pywin32 ---
 if sys.platform == "win32":
@@ -67,9 +70,10 @@ class ScrcpyEmbedWindow(tk.Toplevel):
     def __init__(self, parent, command_template: str, udid: str, title: str):
         super().__init__(parent)
         self.title(title)
-        self.geometry("1000x800")
+        self.geometry("1200x800") # Increased width for new panel
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+        # --- Scrcpy Process Attributes ---
         self.command_template = command_template
         self.udid = udid
         self.scrcpy_process = None
@@ -79,6 +83,13 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         self.output_queue = Queue()
         self.aspect_ratio = None # Stores the device's screen aspect ratio
         self.resize_job = None # To hold the 'after' job ID for debouncing
+
+        # --- New Feature Attributes ---
+        self.is_recording = False
+        self.recording_process = None
+        self.recording_device_path = ""
+        self.output_is_visible = True
+        self._is_closing = False
 
         self._setup_widgets()
         self._start_scrcpy()
@@ -92,19 +103,41 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         main_frame = ttk.Frame(self, padding=5)
         main_frame.pack(fill=BOTH, expand=YES)
         
-        self.paned_window = ttk.PanedWindow(main_frame, orient=HORIZONTAL)
-        self.paned_window.pack(fill=BOTH, expand=YES)
+        # Main horizontal paned window splits Commands area from Mirror area
+        self.main_paned_window = ttk.PanedWindow(main_frame, orient=HORIZONTAL)
+        self.main_paned_window.pack(fill=BOTH, expand=YES)
 
-        # Frame for scrcpy console output
-        output_frame = ttk.LabelFrame(self.paned_window, text="Scrcpy Output", padding=5)
-        self.output_text = ScrolledText(output_frame, wrap=WORD, state=DISABLED, autohide=True)
+        # --- Left Pane: Contains Commands and Output vertically ---
+        left_pane_container = ttk.Frame(self.main_paned_window)
+        self.main_paned_window.add(left_pane_container, weight=1)
+
+        # This vertical paned window allows hiding/showing the output console
+        self.left_paned_window = ttk.PanedWindow(left_pane_container, orient=VERTICAL)
+        self.left_paned_window.pack(fill=BOTH, expand=YES)
+
+        # Top part of the left pane: The new commands widget
+        commands_frame = ttk.LabelFrame(self.left_paned_window, text="Scrcpy Commands", padding=10)
+        self.left_paned_window.add(commands_frame, weight=1)
+
+        # Bottom part of the left pane: The Scrcpy Output console
+        self.output_frame = ttk.LabelFrame(self.left_paned_window, text="Scrcpy Output", padding=5)
+        self.output_text = ScrolledText(self.output_frame, wrap=WORD, state=DISABLED, autohide=True)
         self.output_text.pack(fill=BOTH, expand=YES)
-        self.paned_window.add(output_frame, weight=1)
+        self.left_paned_window.add(self.output_frame, weight=1) # Initially visible
 
-        # Frame to contain the embedded scrcpy window
-        self.embed_frame = ttk.LabelFrame(self.paned_window, text="Screen Mirror", padding=5)
-        self.embed_frame.pack(fill=BOTH, expand=YES)
-        self.paned_window.add(self.embed_frame, weight=3)
+        # --- Populate the Commands Frame with Buttons ---
+        self.screenshot_button = ttk.Button(commands_frame, text="Take Screenshot", command=self._take_screenshot)
+        self.screenshot_button.pack(fill=X, pady=5, padx=5)
+
+        self.record_button = ttk.Button(commands_frame, text="Start Recording", command=self._toggle_recording, bootstyle="primary")
+        self.record_button.pack(fill=X, pady=5, padx=5)
+
+        self.toggle_output_button = ttk.Button(commands_frame, text="Hide Output", command=self._toggle_output_visibility, bootstyle="secondary")
+        self.toggle_output_button.pack(fill=X, pady=5, padx=5)
+
+        # --- Right Pane: The Embedded Screen Mirror ---
+        self.embed_frame = ttk.LabelFrame(self.main_paned_window, text="Screen Mirror", padding=5)
+        self.main_paned_window.add(self.embed_frame, weight=3)
         
     def _start_scrcpy(self):
         """Starts the scrcpy process and management threads in the background."""
@@ -205,20 +238,20 @@ class ScrcpyEmbedWindow(tk.Toplevel):
             return
 
         ideal_mirror_width = int(pane_height * self.aspect_ratio)
-        total_width = self.paned_window.winfo_width()
+        total_width = self.main_paned_window.winfo_width()
         
-        # The sash position is the width of the first (output) pane.
+        # The sash position is the width of the first (left) pane.
         new_sash_pos = total_width - ideal_mirror_width
 
         # Set some reasonable bounds for the sash position
-        min_output_width = 200
+        min_output_width = 250 # Increased min width for command panel
         if new_sash_pos < min_output_width:
             new_sash_pos = min_output_width
         if new_sash_pos > total_width - min_output_width:
              new_sash_pos = total_width - min_output_width
 
         try:
-            self.paned_window.sashpos(0, new_sash_pos)
+            self.main_paned_window.sashpos(0, new_sash_pos)
         except tk.TclError:
             # This can happen if the window is being destroyed, just ignore it.
             pass
@@ -263,15 +296,205 @@ class ScrcpyEmbedWindow(tk.Toplevel):
             win32gui.MoveWindow(self.scrcpy_hwnd, 0, 0, event.width, event.height, True)
 
     def _on_close(self):
-        """Handles the window close event, ensuring the scrcpy process is terminated."""
-        if self.scrcpy_process and self.scrcpy_process.poll() is None:
-            self.output_queue.put("INFO: Terminating scrcpy process...\n")
-            self.scrcpy_process.terminate()
-            try:
-                self.scrcpy_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                self.scrcpy_process.kill()
-        self.destroy()
+        """Handles the window close event, ensuring processes are terminated safely."""
+        if self._is_closing:
+            return
+        self._is_closing = True
+
+        def final_close_actions():
+            """Terminates scrcpy and destroys the window."""
+            if self.scrcpy_process and self.scrcpy_process.poll() is None:
+                self.output_queue.put("INFO: Terminating scrcpy process...\n")
+                self.scrcpy_process.terminate()
+                try:
+                    self.scrcpy_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    self.scrcpy_process.kill()
+            self.destroy()
+
+        if self.is_recording:
+            self.output_queue.put("INFO: Window closing, stopping active recording...\n")
+            self.record_button.config(state=DISABLED)
+            self.screenshot_button.config(state=DISABLED)
+
+            def stop_and_close_thread():
+                """Runs the blocking stop command then schedules the final close."""
+                self._stop_recording_thread()
+                self.master.after(0, final_close_actions)
+
+            threading.Thread(target=stop_and_close_thread, daemon=True).start()
+        else:
+            final_close_actions()
+
+    # --- New Feature Methods ---
+
+    def _toggle_output_visibility(self):
+        """Shows or hides the Scrcpy Output console."""
+        if self.output_is_visible:
+            self.left_paned_window.forget(self.output_frame)
+            self.toggle_output_button.config(text="Show Output")
+        else:
+            self.left_paned_window.add(self.output_frame, weight=1)
+            self.toggle_output_button.config(text="Hide Output")
+        self.output_is_visible = not self.output_is_visible
+
+    def _take_screenshot(self):
+        """Takes a screenshot and saves it locally in a non-blocking thread."""
+        self.screenshot_button.config(state=DISABLED)
+        thread = threading.Thread(target=self._take_screenshot_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _take_screenshot_thread(self):
+        """The actual logic for taking a screenshot."""
+        self.output_queue.put("INFO: Taking screenshot...\n")
+        
+        screenshots_dir = BASE_DIR / "screenshots"
+        screenshots_dir.mkdir(exist_ok=True)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        device_filename = "/sdcard/screenshot.png"
+        local_filename = f"screenshot_{self.udid.replace(':', '-')}_{timestamp}.png"
+        local_filepath = screenshots_dir / local_filename
+
+        try:
+            # 1. Capture on device
+            capture_cmd = f"adb -s {self.udid} shell screencap -p {device_filename}"
+            success_cap, out_cap = execute_command(capture_cmd)
+            if not success_cap:
+                self.output_queue.put(f"ERROR: Failed to capture screenshot.\n{out_cap}\n")
+                return
+
+            # 2. Pull from device
+            pull_cmd = f"adb -s {self.udid} pull {device_filename} \"{local_filepath}\""
+            success_pull, out_pull = execute_command(pull_cmd)
+            if not success_pull:
+                self.output_queue.put(f"ERROR: Failed to pull screenshot.\n{out_pull}\n")
+            else:
+                self.output_queue.put(f"SUCCESS: Screenshot saved to {local_filepath}\n")
+
+            # 3. Clean up on device
+            rm_cmd = f"adb -s {self.udid} shell rm {device_filename}"
+            execute_command(rm_cmd)
+        finally:
+            # Re-enable the button on the main GUI thread
+            self.master.after(0, lambda: self.screenshot_button.config(state=NORMAL))
+
+    def _toggle_recording(self):
+        """Starts or stops the screen recording."""
+        if not self.is_recording:
+            self._start_recording()
+        else:
+            self._stop_recording()
+
+    def _start_recording(self):
+        """Starts a screen recording in a separate thread."""
+        self.record_button.config(state=DISABLED)
+        thread = threading.Thread(target=self._start_recording_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _start_recording_thread(self):
+        """The actual logic for starting a recording."""
+        recordings_dir = BASE_DIR / "recordings"
+        recordings_dir.mkdir(exist_ok=True)
+        
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        device_filename = f"recording_{timestamp}.mp4"
+        self.recording_device_path = f"/sdcard/{device_filename}"
+        
+        command_list = ["adb", "-s", self.udid, "shell", "screenrecord", self.recording_device_path]
+        
+        self.output_queue.put(f"INFO: Starting recording...\n> {' '.join(command_list)}\n")
+
+        try:
+            # On Windows, CREATE_NEW_PROCESS_GROUP is necessary to send CTRL_C_EVENT later.
+            p_flags = 0
+            if sys.platform == "win32":
+                p_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+
+            self.recording_process = subprocess.Popen(
+                command_list, # Use a list of args, not a string with shell=True
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                text=True, 
+                encoding='utf-8', 
+                errors='replace',
+                creationflags=p_flags
+            )
+            self.master.after(0, self._update_recording_ui, True)
+        except Exception as e:
+            self.output_queue.put(f"ERROR: Failed to start recording process.\n{e}\n")
+            self.master.after(0, lambda: self.record_button.config(state=NORMAL))
+
+    def _stop_recording(self):
+        """Stops the screen recording in a separate thread."""
+        self.record_button.config(state=DISABLED)
+        thread = threading.Thread(target=self._stop_recording_thread)
+        thread.daemon = True
+        thread.start()
+
+    def _stop_recording_thread(self):
+        """The actual logic for stopping a recording and saving the file."""
+        self.output_queue.put("INFO: Stopping recording...\n")
+
+        if not self.recording_process or self.recording_process.poll() is not None:
+            self.output_queue.put("ERROR: No active recording process found to stop.\n")
+            self.master.after(0, self._update_recording_ui, False)
+            return
+
+        # Sending CTRL_C_EVENT (or SIGINT) is the equivalent of pressing Ctrl+C,
+        # which is the correct way to gracefully stop `screenrecord`.
+        try:
+            if sys.platform == "win32":
+                # os.kill is the correct way to send this signal to a process group on Windows.
+                # os.kill(self.recording_process.pid, signal.CTRL_C_EVENT)
+                self.recording_process.kill() # Killing this way since CTRL_C_EVENT may not work in all environments
+            else:
+                # On other platforms, SIGINT is the standard.
+                # os.kill(self.recording_process.pid, signal.SIGINT)
+                self.recording_process.kill()
+
+            # Wait for the process to terminate gracefully
+            self.recording_process.wait(timeout=10)
+            self.output_queue.put("INFO: Recording process stopped gracefully.\n")
+            self.output_queue.put("INFO: Now trying to save the file...\n")
+
+        except subprocess.TimeoutExpired:
+            self.output_queue.put("WARNING: Recording process did not stop in time, killing it forcefully.\n")
+            self.recording_process.kill() # Fallback to killing if it doesn't respond
+        except Exception as e:
+            self.output_queue.put(f"ERROR: An error occurred while stopping the recording: {e}\n")
+            self.recording_process.kill() # Kill on any other error to be safe
+
+        time.sleep(2) # Give the device a moment to finalize the file
+
+        recordings_dir = BASE_DIR / "recordings"
+        local_filename = Path(self.recording_device_path).name
+        local_filepath = recordings_dir / f"{self.udid.replace(':', '-')}_{local_filename}"
+
+        pull_cmd = f"adb -s {self.udid} pull {self.recording_device_path} \"{local_filepath}\""
+        success_pull, out_pull = execute_command(pull_cmd)
+        if not success_pull:
+            self.output_queue.put(f"ERROR: Failed to pull recording.\n{out_pull}\n")
+        else:
+            self.output_queue.put(f"SUCCESS: Recording saved to {local_filepath}\n")
+
+        rm_cmd = f"adb -s {self.udid} shell rm {self.recording_device_path}"
+        execute_command(rm_cmd)
+
+        self.master.after(0, self._update_recording_ui, False)
+
+    def _update_recording_ui(self, is_recording: bool):
+        """Helper to update UI elements from the main thread."""
+        self.is_recording = is_recording
+        if is_recording:
+            self.record_button.config(text="Stop Recording", state=NORMAL, bootstyle="danger-outline")
+        else:
+            self.record_button.config(text="Start Recording", state=NORMAL, bootstyle="primary")
+            self.recording_process = None
+            self.recording_device_path = ""
+
 
 # --- Core Logic Functions (Separated from GUI) ---
 
@@ -570,7 +793,7 @@ class AdbRunnerApp:
         self.connect_port_entry = ttk.Entry(connect_frame, width=10)
         self.connect_port_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
 
-        self.disconnect_button = ttk.Button(connect_frame, text="Disconnect", command=self._disconnect_device, bootstyle="secondary")
+        self.disconnect_button = ttk.Button(connect_frame, text="Disconnect", command=self._disconnect_device, bootstyle="danger-outline")
         self.disconnect_button.grid(row=2, column=0, padx=5, pady=10, sticky="e")
         self.connect_button = ttk.Button(connect_frame, text="Connect", command=self._connect_device, bootstyle="primary")
         self.connect_button.grid(row=2, column=1, padx=5, pady=10, sticky="e")
