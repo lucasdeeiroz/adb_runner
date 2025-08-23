@@ -298,13 +298,14 @@ def execute_command(command: str) -> Tuple[bool, str]:
         stdout, stderr = process.communicate()
 
         if process.returncode != 0:
-            if "device not found" in stderr:
+            output = stdout + stderr
+            if "device not found" in output:
                 return False, "Error: Device not found."
-            if "* daemon not running" in stderr:
+            if "* daemon not running" in output:
                 return False, "ADB daemon is not responding. Please wait..."
-            return False, f"Error executing command:\n{stderr.strip()}"
+            return False, f"Error executing command:\n{output.strip()}"
 
-        return True, stdout.strip()
+        return True, (stdout + stderr).strip()
 
     except FileNotFoundError:
         return False, "Error: Command or executable not found. Check your system's PATH."
@@ -479,6 +480,8 @@ class AdbRunnerApp:
             notebook.add(scrcpy_tab, text="Scrcpy Commands (Unavailable)")
             ttk.Label(scrcpy_tab, text="Scrcpy not found. Restart the app to try downloading again.").pack()
             notebook.tab(1, state="disabled")
+
+        self._create_connect_tab(notebook)
         
         self._create_about_tab(notebook)
 
@@ -524,6 +527,148 @@ class AdbRunnerApp:
         self.execute_button.pack(side=RIGHT)
 
         return listbox, output_text
+
+    def _create_connect_tab(self, parent: ttk.Notebook):
+        """Creates the 'Connect' tab for wireless debugging."""
+        connect_tab = ttk.Frame(parent, padding=20)
+        parent.add(connect_tab, text="Connect")
+
+        # --- Pairing Frame ---
+        pair_frame = ttk.LabelFrame(connect_tab, text="Pair Device", padding=15)
+        pair_frame.pack(fill=X, pady=(0, 20))
+
+        # IP Address
+        ttk.Label(pair_frame, text="IP Address:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.pair_ip_entry = ttk.Entry(pair_frame, width=30)
+        self.pair_ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        # Port
+        ttk.Label(pair_frame, text="Port:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.pair_port_entry = ttk.Entry(pair_frame, width=10)
+        self.pair_port_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        # Pairing Code
+        ttk.Label(pair_frame, text="Pairing Code:").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.pair_code_entry = ttk.Entry(pair_frame, width=10)
+        self.pair_code_entry.grid(row=2, column=1, padx=5, pady=5, sticky="w")
+
+        self.pair_button = ttk.Button(pair_frame, text="Pair", command=self._pair_device, bootstyle="primary")
+        self.pair_button.grid(row=3, column=1, padx=5, pady=10, sticky="e")
+        pair_frame.columnconfigure(1, weight=1)
+
+        # --- Connection Frame ---
+        connect_frame = ttk.LabelFrame(connect_tab, text="Connect Device", padding=15)
+        connect_frame.pack(fill=X, pady=(0, 20))
+
+        # IP Address
+        ttk.Label(connect_frame, text="IP Address:").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.connect_ip_entry = ttk.Entry(connect_frame, width=30)
+        self.connect_ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        # Port
+        ttk.Label(connect_frame, text="Port:").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.connect_port_entry = ttk.Entry(connect_frame, width=10)
+        self.connect_port_entry.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+
+        self.disconnect_button = ttk.Button(connect_frame, text="Disconnect", command=self._disconnect_device, bootstyle="secondary")
+        self.disconnect_button.grid(row=2, column=0, padx=5, pady=10, sticky="e")
+        self.connect_button = ttk.Button(connect_frame, text="Connect", command=self._connect_device, bootstyle="primary")
+        self.connect_button.grid(row=2, column=1, padx=5, pady=10, sticky="e")
+        connect_frame.columnconfigure(1, weight=1)
+
+        # --- Output Frame ---
+        output_frame = ttk.LabelFrame(connect_tab, text="Output", padding=10)
+        output_frame.pack(fill=BOTH, expand=YES)
+        self.connect_output_text = ScrolledText(output_frame, wrap=WORD, state=DISABLED, autohide=True)
+        self.connect_output_text.pack(fill=BOTH, expand=YES)
+
+    def _pair_device(self):
+        """Handles the logic for pairing a device."""
+        ip = self.pair_ip_entry.get().strip()
+        port = self.pair_port_entry.get().strip()
+        code = self.pair_code_entry.get().strip()
+
+        if not all([ip, port, code]):
+            messagebox.showwarning("Input Required", "Please fill in all fields for pairing.")
+            return
+
+        command = f"adb pair {ip}:{port}"
+        # The pairing code is sent as input to the process
+        self._update_output_text(self.connect_output_text, f"Attempting to pair with {ip}:{port}...\n", clear=True)
+        self.pair_button.config(state=DISABLED)
+
+        thread = threading.Thread(target=self._run_pair_command_thread, args=(command, code, self.connect_output_text))
+        thread.daemon = True
+        thread.start()
+
+    def _run_pair_command_thread(self, command: str, code: str, output_widget: ScrolledText):
+        """Executes the pairing command in a separate thread."""
+        try:
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
+            # Send the pairing code to the process's stdin
+            stdout, stderr = process.communicate(input=f"{code}\n")
+            
+            output = stdout + stderr
+            self.root.after(0, self._update_output_text, output_widget, f"Result:\n{output.strip()}", False)
+
+        except Exception as e:
+            self.root.after(0, self._update_output_text, output_widget, f"An unexpected error occurred: {e}", False)
+        
+        finally:
+            self.root.after(0, lambda: self.pair_button.config(state=NORMAL))
+            self.root.after(100, self._refresh_devices)
+
+
+    def _connect_device(self):
+        """Handles the logic for connecting to a device."""
+        ip = self.connect_ip_entry.get().strip()
+        port = self.connect_port_entry.get().strip()
+
+        if not all([ip, port]):
+            messagebox.showwarning("Input Required", "Please fill in IP Address and Port to connect.")
+            return
+        
+        command = f"adb connect {ip}:{port}"
+        self._update_output_text(self.connect_output_text, f"Attempting to connect to {ip}:{port}...\n", clear=True)
+        self.connect_button.config(state=DISABLED)
+
+        # Use the generic command runner for the connect command
+        thread = threading.Thread(target=self._run_command_and_update_gui, args=(command, self.connect_output_text, self.connect_button, True))
+        thread.daemon = True
+        thread.start()
+
+    def _disconnect_device(self):
+        """Handles the logic for connecting to a device."""
+        ip = self.connect_ip_entry.get().strip()
+        port = self.connect_port_entry.get().strip()
+
+        if not ip and port:
+            messagebox.showwarning("Input Required", "Please fill in IP Address to disconnect.")
+            return
+        elif not port and ip:
+            messagebox.showwarning("Input Required", "Please fill in Port to disconnect.")
+            return
+        elif not all([ip, port]):
+            command = "adb disconnect"
+        else:
+            command = f"adb disconnect {ip}:{port}"
+        self._update_output_text(self.connect_output_text, f"Attempting to disconnect...\n", clear=True)
+        self.disconnect_button.config(state=DISABLED)
+
+        # Use the generic command runner for the disconnect command
+        thread = threading.Thread(target=self._run_command_and_update_gui, args=(command, self.connect_output_text, self.disconnect_button, True))
+        thread.daemon = True
+        thread.start()
 
     def _create_about_tab(self, parent: ttk.Notebook):
         """Creates the 'About' tab with project info and credits."""
@@ -660,17 +805,22 @@ SOFTWARE."""
             final_command = command_template.format(udid=udid)
             self._update_output_text(output_text, f"Executing: {final_command}\n\n", clear=True)
             self.execute_button.config(state=DISABLED)
-            thread = threading.Thread(target=self._run_command_and_update_gui, args=(final_command, output_text))
+            thread = threading.Thread(target=self._run_command_and_update_gui, args=(final_command, output_text, self.execute_button, False))
             thread.daemon = True
             thread.start()
 
-    def _run_command_and_update_gui(self, command: str, output_widget: ScrolledText):
+    def _run_command_and_update_gui(self, command: str, output_widget: ScrolledText, button: ttk.Button, refresh_on_success: bool = False):
         success, output = execute_command(command)
         if not output:
             self.root.after(0, self._update_output_text, output_widget, f"Result: {success}", False)
         else:
             self.root.after(0, self._update_output_text, output_widget, f"Result: {output}", False)
-        self.root.after(0, lambda: self.execute_button.config(state=NORMAL))
+        
+        if success and refresh_on_success:
+            self.root.after(100, self._refresh_devices)
+            
+        self.root.after(0, lambda: button.config(state=NORMAL))
+
 
     def _update_output_text(self, widget: ScrolledText, result: str, clear: bool):
         widget.text.config(state=NORMAL)
@@ -723,3 +873,4 @@ if __name__ == "__main__":
     app = AdbRunnerApp(root)
     root.mainloop()
 
+# End of adb_runner.py

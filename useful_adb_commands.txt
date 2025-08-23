@@ -1,19 +1,20 @@
 // useful_adb_commands.txt
 // Use {udid} to reference the selected device's ID.
-TITLE: Fixing Appium errors; ADB_COMMAND: uninstall io.appium.uiautomator2.server.test && adb -s {udid} uninstall io.appium.uiautomator2.server
-TITLE: Granting Galaxy MahHz permission; ADB_COMMAND: pm grant com.tribalfs.gmh android.permission.WRITE_SECURE_SETTINGS
-TITLE: Setting up Shizuku; ADB_COMMAND: sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
-TITLE: Lower the long press waiting; ADB_COMMAND: settings put secure long_press_timeout 250
-TITLE: Lower the multi press waiting; ADB_COMMAND: settings put secure multi_press_timeout 250
-TITLE: Disable battery management; ADB_COMMAND: settings put global adaptive_battery_management_enabled 0
-TITLE: Lower the animation duration scale; ADB_COMMAND: settings put global animator_duration_scale 0.5
-TITLE: Lower the transition animation scale; ADB_COMMAND: settings put global transition_animation_scale 0.5
-TITLE: Lower the window animation scale; ADB_COMMAND: settings put global window_animation_scale 0.5
-TITLE: Disable RAM expand; ADB_COMMAND: settings put global ram_expand_size 0
-TITLE: Enable low heat mode; ADB_COMMAND: settings put global sem_low_heat_mode 1
-TITLE: Enable back animation; ADB_COMMAND: settings put global enable_back_animation 1
-TITLE: Enable flashlight high level; ADB_COMMAND: settings put system Flashlight_brightness_level 1001
-TITLE: Enable brightness on top; ADB_COMMAND: settings put secure brightness_on_top 0
-TITLE: Disable online manual; ADB_COMMAND: settings put global online_manual_url 0
-TITLE: Enable AdGuard DNS; ADB_COMMAND: settings put global private_dns_specifier dns.adguard.com
-TITLE: adb shell getprop ro.product.model ; ADB_COMMAND: getprop ro.product.model
+TITLE: Fixing Appium errors ; ADB_COMMAND: uninstall io.appium.uiautomator2.server.test && adb -s {udid} uninstall io.appium.uiautomator2.server
+TITLE: Granting Galaxy MahHz permission ; ADB_COMMAND: pm grant com.tribalfs.gmh android.permission.WRITE_SECURE_SETTINGS
+TITLE: Setting up Shizuku ; ADB_COMMAND: sh /storage/emulated/0/Android/data/moe.shizuku.privileged.api/start.sh
+TITLE: Lower the long press waiting ; ADB_COMMAND: settings put secure long_press_timeout 250
+TITLE: Lower the multi press waiting ; ADB_COMMAND: settings put secure multi_press_timeout 250
+TITLE: Disable battery management ; ADB_COMMAND: settings put global adaptive_battery_management_enabled 0
+TITLE: Lower the animation duration scale ; ADB_COMMAND: settings put global animator_duration_scale 0.5
+TITLE: Lower the transition animation scale ; ADB_COMMAND: settings put global transition_animation_scale 0.5
+TITLE: Lower the window animation scale ; ADB_COMMAND: settings put global window_animation_scale 0.5
+TITLE: Disable RAM expand ; ADB_COMMAND: settings put global ram_expand_size 0
+TITLE: Enable low heat mode ; ADB_COMMAND: settings put global sem_low_heat_mode 1
+TITLE: Enable back animation ; ADB_COMMAND: settings put global enable_back_animation 1
+TITLE: Enable flashlight high level ; ADB_COMMAND: settings put system Flashlight_brightness_level 1001
+TITLE: Enable brightness on top ; ADB_COMMAND: settings put secure brightness_on_top 0
+TITLE: Disable online manual ; ADB_COMMAND: settings put global online_manual_url 0
+TITLE: Enable AdGuard DNS ; ADB_COMMAND: settings put global private_dns_specifier dns.adguard.com
+
+TITLE: teste ; ADB_COMMAND: getprop ro.build.version.release
