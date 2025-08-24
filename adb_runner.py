@@ -263,20 +263,44 @@ class ScrcpyEmbedWindow(tk.Toplevel):
             win32gui.MoveWindow(self.scrcpy_hwnd, 0, 0, event.width, event.height, True)
 
     def _on_close(self):
-        """Handles the window close event, ensuring processes are terminated safely."""
+        """
+        Handles the window close event.
+        This is the MODIFIED section. It now correctly terminates the specific scrcpy process tree.
+        """
         if self._is_closing:
             return
         self._is_closing = True
 
         def final_close_actions():
-            """Terminates scrcpy and destroys the window."""
+            """Terminates scrcpy and its process tree, then destroys the window."""
             if self.scrcpy_process and self.scrcpy_process.poll() is None:
-                self.output_queue.put("INFO: Terminating scrcpy process...\n")
-                self.scrcpy_process.terminate()
-                try:
-                    self.scrcpy_process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self.scrcpy_process.kill()
+                pid = self.scrcpy_process.pid
+                self.output_queue.put(f"INFO: Terminating scrcpy process tree (Parent PID: {pid})...\n")
+                
+                # On Windows, using shell=True starts cmd.exe, which then starts scrcpy.exe.
+                # We need to kill the entire process tree to ensure scrcpy.exe closes.
+                # The /T flag terminates the process and its children. /F forces it.
+                if sys.platform == "win32":
+                    try:
+                        subprocess.run(
+                            f"taskkill /PID {pid} /T /F",
+                            check=True,
+                            capture_output=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW
+                        )
+                        self.output_queue.put("INFO: Scrcpy process tree terminated successfully via taskkill.\n")
+                    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                        self.output_queue.put(f"WARNING: taskkill failed ({e}), falling back to standard terminate/kill.\n")
+                        # Fallback to the original method if taskkill fails
+                        self.scrcpy_process.terminate()
+                        try:
+                            self.scrcpy_process.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            self.scrcpy_process.kill()
+                else:
+                    # For non-Windows systems, the original method is usually sufficient.
+                    self.scrcpy_process.terminate()
+
             self.destroy()
 
         if self.is_recording:
@@ -369,9 +393,6 @@ class ScrcpyEmbedWindow(tk.Toplevel):
         self.output_queue.put(f"INFO: Starting recording...\n> {' '.join(command_list)}\n")
 
         try:
-            p_flags = 0
-            if sys.platform == "win32":
-                p_flags = subprocess.CREATE_NEW_PROCESS_GROUP
 
             self.recording_process = subprocess.Popen(
                 command_list,
@@ -380,7 +401,7 @@ class ScrcpyEmbedWindow(tk.Toplevel):
                 text=True, 
                 encoding='utf-8', 
                 errors='replace',
-                creationflags=p_flags
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
             self.master.after(0, self._update_recording_ui, True)
         except Exception as e:
@@ -477,35 +498,6 @@ def manage_adb_server(start: bool = True):
         process.kill()
     except Exception as e:
         print(f"ERROR: Failed to execute '{command}': {e}")
-
-# SOLUTION: New function to manage scrcpy processes.
-def manage_scrcpy_processes():
-    """
-    Kills any running scrcpy.exe processes to prevent duplicates and ensure cleanup.
-    This is a Windows-specific solution using taskkill.
-    """
-    if sys.platform != "win32":
-        return
-
-    command = "taskkill /F /IM scrcpy.exe"
-    print("INFO: Killing any lingering scrcpy.exe processes...")
-    try:
-        # We run this command to clean up. It's okay if it fails (e.g., if no processes are found).
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            creationflags=subprocess.CREATE_NO_WINDOW
-        )
-        process.communicate(timeout=10)
-        print("INFO: Scrcpy cleanup command executed.")
-    except subprocess.TimeoutExpired:
-        print(f"ERROR: Timeout expired for scrcpy cleanup. Killing process.")
-        process.kill()
-    except Exception as e:
-        # We log the error but don't bother the user, as this is a cleanup task.
-        print(f"NOTE: Could not perform scrcpy cleanup: {e}")
 
 
 def hide_console():
@@ -683,20 +675,14 @@ class AdbRunnerApp:
         self._create_widgets()
         self._redirect_console()
 
-        # SOLUTION: Start the ADB server and kill any old scrcpy processes on launch.
         threading.Thread(target=manage_adb_server, args=(True,), daemon=True).start()
-        threading.Thread(target=manage_scrcpy_processes, daemon=True).start()
 
         self._initial_refresh()
 
-    # SOLUTION: Updated method to handle application closing gracefully for both ADB and Scrcpy.
     def _on_closing(self):
         """Handles cleanup before the application window is destroyed."""
         print("INFO: Close button clicked. Shutting down ADB server and scrcpy processes...")
-        # Kill the ADB server and any running scrcpy instances in the background.
         threading.Thread(target=manage_adb_server, args=(False,), daemon=True).start()
-        threading.Thread(target=manage_scrcpy_processes, daemon=True).start()
-        # Give the commands a moment to dispatch before destroying the window.
         self.root.after(300, self.root.destroy)
 
     def _create_widgets(self):
